@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Data Artifacts (Dynamic calculation pipeline output)
+data/target/
+data/library/
+data/physics_engine/
+data/ranking/
+data/vector_engine/
+# Note: binaries downloaded to data/bin/ (like vina.exe) must be excluded
+data/bin/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Node / React Dashboard Build Artifacts
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# IDE Configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store

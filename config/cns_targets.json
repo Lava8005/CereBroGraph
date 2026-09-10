@@ -1,0 +1,16 @@
+[
+    {
+        "disease": "Alzheimers_AChE",
+        "raw_pdb": "data/target/raw/1e66.pdb",
+        "pdbqt": "data/target/1E66_target.pdbqt",
+        "grid": "data/target/1E66_grid.json",
+        "active_site": {
+            "center_x": 4.679,
+            "center_y": 64.974,
+            "center_z": 54.341,
+            "size_x": 20.0,
+            "size_y": 20.0,
+            "size_z": 20.0
+        }
+    }
+]

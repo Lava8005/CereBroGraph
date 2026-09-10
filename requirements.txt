@@ -1,0 +1,11 @@
+biopython>=1.80
+gemmi>=0.6.0
+meeko>=0.7.0
+rdkit>=2023.03.1
+scipy>=1.10.0
+pytest>=8.0.0
+scikit-learn>=1.3.0
+pandas>=2.0.0
+supabase>=2.0.0
+torch>=2.0.0
+torch_geometric>=2.3.0
