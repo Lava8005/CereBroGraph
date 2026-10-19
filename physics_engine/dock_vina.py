@@ -1,8 +1,8 @@
 """AutoDock Vina Physics Engine for CerebroGraph.
 
 Executes multi-target thermodynamic docking simulations.
-Optimized to perform $\mathcal{O}(M)$ RDKit/Meeko 3D embedding (once per molecule)
-rather than $\mathcal{O}(M \times T)$. Features real-time CSV appending for 
+Optimized to perform O(M) RDKit/Meeko 3D embedding (once per molecule)
+rather than O(M * T). Features real-time CSV appending for 
 power-failure resilience and instant pipeline resumption.
 """
 
@@ -29,7 +29,6 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 def get_completed_candidates(output_csv: Path) -> Set[str]:
-    """Extract candidate codes already processed to allow seamless resumption."""
     completed = set()
     if output_csv.exists():
         with open(output_csv, "r", encoding="utf-8") as f:
@@ -44,16 +43,13 @@ def get_completed_candidates(output_csv: Path) -> Set[str]:
 
 
 def prepare_ligand_pdbqt(smiles: str) -> Optional[str]:
-    """Generate 3D conformer and Meeko PDBQT string exactly once per molecule."""
     mol = Chem.MolFromSmiles(smiles)
     if not mol:
         return None
         
     mol = Chem.AddHs(mol)
-    # Generate 3D coordinates using ETKDGv3
     if AllChem.EmbedMolecule(mol, AllChem.ETKDGv3()) != 0:
         return None
-    # Optimize geometry with MMFF94 force field
     try:
         AllChem.MMFFOptimizeMolecule(mol)
     except Exception:
@@ -62,7 +58,6 @@ def prepare_ligand_pdbqt(smiles: str) -> Optional[str]:
     try:
         preparator = MoleculePreparation()
         preparator.prepare(mol)
-        # Handle Meeko v0.5+ API changes
         if hasattr(preparator, 'write_pdbqt_string'):
             return preparator.write_pdbqt_string()
         else:
@@ -73,7 +68,6 @@ def prepare_ligand_pdbqt(smiles: str) -> Optional[str]:
 
 
 def dock_precomputed_target(vina_exe: str, ligand_pdbqt_path: str, target: dict) -> Tuple[str, float]:
-    """Execute AutoDock Vina using a pre-computed 3D ligand file."""
     disease = target.get("disease", "Unknown")
     receptor_pdbqt = target.get("pdbqt")
     grid = target.get("grid")
@@ -121,25 +115,20 @@ def process_molecule(
     output_csv: Path, 
     csv_lock: threading.Lock
 ) -> dict:
-    """Worker Thread: Embeds once, docks multi-target, and streams safely to disk."""
     smiles = row.get("smiles", "")
     target_scores = {}
     
-    # 1. Embed 3D Conformer ONCE
     ligand_pdbqt_data = prepare_ligand_pdbqt(smiles)
     
     if not ligand_pdbqt_data:
-        # Failsafe: Return 0.0 for all targets instantly without I/O
         for t in targets:
             target_scores[t.get("disease", "Unknown")] = 0.0
     else:
-        # 2. Write embedded ligand to temporary file safely
         fd, temp_lig_path = tempfile.mkstemp(suffix=".pdbqt", dir=work_dir)
         try:
             with os.fdopen(fd, 'w') as f:
                 f.write(ligand_pdbqt_data)
                 
-            # 3. Execute Vina across targets using the shared PDBQT
             for target in targets:
                 disease, score = dock_precomputed_target(vina_exe, temp_lig_path, target)
                 target_scores[disease] = score
@@ -149,7 +138,6 @@ def process_molecule(
                 
     row["target_scores"] = json.dumps(target_scores)
     
-    # 4. Stream result to CSV immediately (Thread-Safe Append)
     if output_csv:
         with csv_lock:
             file_exists = output_csv.exists()
@@ -167,12 +155,10 @@ def batch_execute_docking(
     output_csv: Path = Path("data/physics_engine/docking_results.csv"),
     config_path: Path = Path("config/cns_targets.json")
 ) -> int:
-    """Orchestrate resumable multi-threaded docking."""
     if not input_csv.exists() or not config_path.exists():
         logging.error("Missing inputs or target configuration.")
         return 0
 
-    # Locate Vina executable
     vina_exe = "vina" if os.name != "nt" else "vina.exe"
     try:
         subprocess.run([vina_exe, "--version"], capture_output=True, check=True)
@@ -183,7 +169,6 @@ def batch_execute_docking(
     with open(config_path, "r", encoding="utf-8") as f:
         targets = json.load(f)
 
-    # Resumption Logic: Get molecules already processed
     completed_codes = get_completed_candidates(output_csv)
     
     pending_rows = []
@@ -204,8 +189,6 @@ def batch_execute_docking(
     
     csv_lock = threading.Lock()
     total_processed = len(completed_codes)
-    
-    # Cap threads to prevent CPU thermal throttling (reserve 2 for OS)
     max_threads = max(1, os.cpu_count() - 2)
 
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
@@ -223,7 +206,6 @@ def batch_execute_docking(
 
     logging.info(f"AutoDock Vina execution completed. Total docked: {total_processed}")
     return total_processed
-
 
 if __name__ == "__main__":
     batch_execute_docking()

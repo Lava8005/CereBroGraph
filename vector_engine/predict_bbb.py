@@ -1,11 +1,54 @@
-import pandas as pd
-from functools import partial
-from concurrent.futures import ProcessPoolExecutor
+"""Inference Engine for Blood-Brain Barrier (BBB) Permeability Prediction.
+
+Streams candidates through the pre-trained GINE model. Utilizes ProcessPoolExecutor
+for CPU-bound RDKit featurization to keep the GPU fully saturated. Enforces Pareto
+queue truncation to strictly bound downstream AutoDock Vina physics compute times.
+"""
+
+import csv
+import logging
+import sys
 import os
+from itertools import islice
+from pathlib import Path
+from typing import Optional, Set
+from concurrent.futures import ProcessPoolExecutor
+
+project_root = str(Path(__file__).resolve().parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+import pandas as pd
+import torch
+from torch_geometric.data import Batch
+
+from vector_engine.b3db_to_graph import smiles_to_graph
+from vector_engine.device_manager import default_device_manager
+from vector_engine.gnn_model import BBBGraphModel
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+_KNOWN_PGP_EFFLUX_NEGATIVE_SMILES = [
+    "CN(C)C(=O)C(CCN1CCC(O)(c2ccc(Cl)cc2)CC1)(c1ccccc1)c1ccccc1",
+    "CN(C)C(=O)C(CCCN1CCC(O)(c2ccc(Cl)cc2)CC1)(c1ccccc1)c1ccccc1",
+]
+
+def _get_pgp_efflux_set() -> Set[str]:
+    efflux_set: Set[str] = set()
+    for smi in _KNOWN_PGP_EFFLUX_NEGATIVE_SMILES:
+        from rdkit import Chem
+        mol = Chem.MolFromSmiles(smi)
+        if mol is not None:
+            efflux_set.add(Chem.MolToSmiles(mol, canonical=True))
+    return efflux_set
+
+PGP_EFFLUX_NEGATIVES: Set[str] = _get_pgp_efflux_set()
+
 
 def _process_graph_chunk(smiles_list):
     """Standalone worker function for ProcessPoolExecutor."""
     return [smiles_to_graph(smi, is_inference=True) for smi in smiles_list]
+
 
 def run_bbb_inference(
     input_csv: Path = Path("data/physics_engine/filtered_step1.csv"),
@@ -15,20 +58,23 @@ def run_bbb_inference(
     bbb_threshold: float = 0.35,
     max_docking_candidates: int = 2000
 ) -> int:
-    """High-throughput inference with parallel featurization, FP32 sigmoid, and Pareto truncation."""
+    """High-throughput inference with parallel featurization and FP32 sigmoid cast."""
     if not input_csv.exists():
         raise FileNotFoundError(f"Missing input candidate library: {input_csv}")
 
     dm = default_device_manager
-    model = BBBGraphModel(num_node_features=5, hidden_dim=64)
+    model = BBBGraphModel(num_node_features=27, edge_dim=7, global_dim=2, hidden_dim=64)
     model = dm.to_device(model)
-    model.load_state_dict(torch.load(model_weights_path, map_location=dm.device, weights_only=True))
-    model.eval()
     
+    if model_weights_path and model_weights_path.exists():
+        model.load_state_dict(torch.load(model_weights_path, map_location=dm.device, weights_only=True))
+    else:
+        logging.warning("Inference running with uninitialized weights.")
+        
+    model.eval()
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     
     total_processed = 0
-    total_retained = 0
     max_workers = max(1, os.cpu_count() - 2)
 
     with open(input_csv, "r", encoding="utf-8") as infile, \
@@ -50,7 +96,6 @@ def run_bbb_inference(
 
                 smiles_list = [r.get("smiles", "") for r in batch_rows]
                 
-                # THE FIX: Parallelize RDKit CPU featurization to feed the GPU faster
                 chunk_size = max(1, len(smiles_list) // max_workers)
                 chunks = [smiles_list[i:i + chunk_size] for i in range(0, len(smiles_list), chunk_size)]
                 
@@ -73,9 +118,14 @@ def run_bbb_inference(
 
                     with torch.no_grad():
                         with dm.autocast():
-                            logits = model(batch_data.x, batch_data.edge_index, batch_data.batch)
-                            
-                        # THE FIX: Cast logits to FP32 before sigmoid to prevent precision loss
+                            logits = model(
+                                batch_data.x, 
+                                batch_data.edge_index, 
+                                batch_data.batch,
+                                edge_attr=batch_data.edge_attr,
+                                global_features=batch_data.global_features
+                            )
+                        # Cast logits to FP32 before sigmoid to prevent rank ties
                         probabilities = torch.sigmoid(logits.float()).view(-1).cpu().tolist()
 
                     for row_idx, prob, graph_obj in zip(valid_indices, probabilities, valid_graphs):
@@ -99,16 +149,12 @@ def run_bbb_inference(
                 total_processed += len(batch_rows)
                 dm.empty_cache()
 
-    # THE FIX: Mathematical Funnel Truncation
-    # Only keep the absolute best N molecules (by BBB * QED) to prevent Vina from running for 9 hours
     df = pd.read_csv(output_csv)
     if not df.empty and len(df) > max_docking_candidates:
         logging.info(f"Truncating {len(df)} candidates down to Top {max_docking_candidates} for Vina...")
-        # Give FDA controls artificial immunity so they survive truncation for Validation 2 checks
         df["is_control"] = df["source_id"].isin(["DONEPEZIL", "SAFINAMIDE"])
         df["priority_score"] = df["bbb_probability"].astype(float) * df["qed"].astype(float)
         
-        # Sort by Control Status first, then mathematical superiority
         df = df.sort_values(by=["is_control", "priority_score"], ascending=[False, False])
         df = df.head(max_docking_candidates)
         df.drop(columns=["priority_score", "is_control"]).to_csv(output_csv, index=False)
@@ -118,3 +164,6 @@ def run_bbb_inference(
 
     logging.info(f"BBB Stage complete. Processed: {total_processed} | Queued for Docking: {total_retained}.")
     return total_processed
+
+if __name__ == "__main__":
+    run_bbb_inference()

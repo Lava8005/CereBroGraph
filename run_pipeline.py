@@ -43,13 +43,10 @@ def run_stage(script_relative_path: str, stage_name: str, force: bool = False):
         sys.exit(e.returncode)
 
 def validate_fda_controls(docking_csv: Path, final_json: Path):
-    """Scientific Validation 2: Ensure FDA controls survived biological filtration."""
     if not docking_csv.exists() or not final_json.exists():
         return
         
     import pandas as pd
-    
-    # 1. Biological Filter Check (Did they pass QED & BBB?)
     try:
         dock_df = pd.read_csv(docking_csv)
         surviving_sources = set(dock_df['source_id'].astype(str).str.upper())
@@ -59,7 +56,6 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
     d_docked = "DONEPEZIL" in surviving_sources
     s_docked = "SAFINAMIDE" in surviving_sources
     
-    # 2. Pareto Skyline Check (Did they make Top K?)
     with open(final_json, "r", encoding="utf-8") as f:
         candidates = json.load(f)
     top_k_sources = [str(c.get("source_id", "")).upper() for c in candidates]
@@ -69,18 +65,15 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
     
     logging.info("-" * 60)
     logging.info("SCIENTIFIC VALIDATION 2 (FDA CONTROL SPIKE):")
-    
     if d_docked and s_docked:
-        logging.info("  [BIOLOGY] Success: Donepezil & Safinamide passed BBB & QED filters.")
+        logging.info("  [BIOLOGY] Success: Donepezil & Safinamide passed filters.")
     else:
-        logging.warning(f"  [BIOLOGY] Failed: Controls dropped by biological filters! (Donepezil: {d_docked}, Safinamide: {s_docked})")
+        logging.warning(f"  [BIOLOGY] Failed: Controls dropped! (Donepezil: {d_docked}, Safinamide: {s_docked})")
         
     if d_topk and s_topk:
         logging.info("  [PARETO] Success: Both controls reached the Top-20 Skyline.")
     elif d_docked or s_docked:
-        logging.info(f"  [PARETO] Info: Controls survived biology, but were mathematically out-competed by ZINC molecules in the Top-20.")
-        logging.info(f"           (Donepezil in Top 20: {d_topk}, Safinamide in Top 20: {s_topk})")
-        
+        logging.info("  [PARETO] Info: Controls mathematically out-competed by Top-20 ZINC molecules.")
     logging.info("-" * 60)
 
 def main():
@@ -94,6 +87,9 @@ def main():
     filtered_step2 = PROJECT_ROOT / "data" / "physics_engine" / "filtered_step2.csv"
     docking_results = PROJECT_ROOT / "data" / "physics_engine" / "docking_results.csv"
     final_json = PROJECT_ROOT / "data" / "ranking" / "final_candidates.json"
+    
+    config_path = PROJECT_ROOT / "config" / "cns_targets.json"
+    gnn_checkpoint = PROJECT_ROOT / "vector_engine" / "checkpoints" / "best_bbb_gnn.pt"
 
     run_stage("target/prepare_target.py", "Target Preparation", args.force)
 
@@ -107,12 +103,14 @@ def main():
     else:
         logging.info("Skipping Stage: Drug Likeness (Cache hit)")
 
-    if args.force or is_stale([filtered_step1], filtered_step2):
+    if args.force or is_stale([filtered_step1, gnn_checkpoint], filtered_step2):
         run_stage("vector_engine/predict_bbb.py", "BBB GNN Inference", args.force)
     else:
         logging.info("Skipping Stage: BBB GNN Inference (Cache hit)")
 
-    if args.force or is_stale([filtered_step2], docking_results):
+    if args.force or is_stale([filtered_step2, config_path], docking_results):
+        if args.force and docking_results.exists():
+            docking_results.unlink()
         run_stage("physics_engine/dock_vina.py", "AutoDock Vina Docking", args.force)
     else:
         logging.info("Skipping Stage: AutoDock Vina Docking (Cache hit)")
