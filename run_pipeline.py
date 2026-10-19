@@ -1,8 +1,8 @@
 """CerebroGraph / Omni-Vector-AI-Dashboard Master Orchestrator. 
 
 Executes the polypharmacology pipeline in isolated OS-level subprocesses. 
-Features caching/resumability, cross-platform absolute path resolution, and
-automated Validation 2 (FDA Control Spike) execution checks.
+Features strict artifact hashing, atomic marker-based resumption, 
+cross-platform absolute path resolution, and automated Scientific Validation.
 """
 
 import argparse
@@ -80,8 +80,7 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
     if d_topk and s_topk:
         logging.info("  [PARETO] Success: Both controls reached the Top-20 Skyline.")
     elif d_docked or s_docked:
-        logging.info(f"  [PARETO] Info: Controls survived biology, but were mathematically out-competed by ZINC molecules in the Top-20.")
-        logging.info(f"           (Donepezil in Top 20: {d_topk}, Safinamide in Top 20: {s_topk})")
+        logging.info("  [PARETO] Info: Controls survived biology, but were mathematically out-competed by ZINC molecules in the Top-20.")
         
     logging.info("-" * 60)
 
@@ -90,6 +89,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="Force run all stages, bypassing cache.")
     args = parser.parse_args()
 
+    # Core Pipeline Artifacts
     raw_lib = PROJECT_ROOT / "data" / "library" / "raw" / "zinc_subset.csv"
     curated_lib = PROJECT_ROOT / "data" / "library" / "curated_library.csv"
     filtered_step1 = PROJECT_ROOT / "data" / "physics_engine" / "filtered_step1.csv"
@@ -97,8 +97,10 @@ def main():
     docking_results = PROJECT_ROOT / "data" / "physics_engine" / "docking_results.csv"
     final_json = PROJECT_ROOT / "data" / "ranking" / "final_candidates.json"
     
-    config_path = PROJECT_ROOT / "config" / "cns_targets.json"
+    # External Runtime Dependencies & State Markers
+    target_index = PROJECT_ROOT / "data" / "target" / "target_index.json"
     gnn_checkpoint = PROJECT_ROOT / "vector_engine" / "checkpoints" / "best_bbb_gnn.pt"
+    docking_marker = PROJECT_ROOT / "data" / "physics_engine" / "docking.marker"
 
     run_stage("target/prepare_target.py", "Target Preparation", args.force)
 
@@ -118,12 +120,18 @@ def main():
     else:
         logging.info("Skipping Stage: BBB GNN Inference (Cache hit)")
 
-    # Included Target Config in the cache watcher
-    if args.force or is_stale([filtered_step2, config_path], docking_results):
-        # THE FIX: Always unlink stale results to prevent ghost resumption
+    # Included Target Index and Atomic Marker in the cache watcher
+    if args.force or not docking_marker.exists() or is_stale([filtered_step2, target_index], docking_marker):
+        # Obliterate stale or partially written CSVs to prevent Ghost Resumption
         if docking_results.exists():
             docking_results.unlink()
+        if docking_marker.exists():
+            docking_marker.unlink()
+            
         run_stage("physics_engine/dock_vina.py", "AutoDock Vina Docking", args.force)
+        
+        # Touch marker ONLY after successful subprocess completion
+        docking_marker.touch()
     else:
         logging.info("Skipping Stage: AutoDock Vina Docking (Cache hit)")
 

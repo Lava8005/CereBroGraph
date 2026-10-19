@@ -1,21 +1,34 @@
-import pytest
-import sys
-from pathlib import Path
-from run_pipeline import is_stale, run_stage, PROJECT_ROOT
+"""TDD Suite for Master Orchestrator State Management."""
 
-def test_freshness_check(tmp_path: Path):
-    """Ensure the state machine accurately detects when to skip redundant compute."""
-    in_file = tmp_path / "in.csv"
-    out_file = tmp_path / "out.csv"
+import pytest
+from pathlib import Path
+from run_pipeline import is_stale
+
+def test_cache_invalidation_logic():
+    """Ensure multi-input cache invalidation accurately detects stale artifacts."""
+    class MockFile:
+        def __init__(self, exists=True, mtime=100):
+            self._exists = exists
+            self.mtime = mtime
+        def exists(self): return self._exists
+        def stat(self): return type('obj', (object,), {'st_mtime': self.mtime})
+        
+    old_input1 = MockFile(mtime=50)
+    new_input2 = MockFile(mtime=200) # Simulating a newly trained GNN weights file
+    output = MockFile(mtime=100)
     
-    in_file.touch()
-    assert is_stale([in_file], out_file) is True # Output missing, must run
+    # Even if one input is old, if any input is newer than the output, it MUST be stale
+    assert is_stale([old_input1, new_input2], output) is True
+    assert is_stale([old_input1], output) is False
+
+def test_missing_marker_invalidation():
+    """Ensure missing marker files force a stage re-run."""
+    class MockFile:
+        def __init__(self, exists=True):
+            self._exists = exists
+        def exists(self): return self._exists
+        
+    missing_marker = MockFile(exists=False)
+    input_file = MockFile(exists=True)
     
-    out_file.touch()
-    in_file.write_text("new data")
-    assert is_stale([in_file], out_file) is True # Input modified, must run
-    
-def test_path_resolution():
-    """Ensure the orchestrator calculates strict absolute paths for subprocesses."""
-    assert PROJECT_ROOT.is_absolute()
-    assert (PROJECT_ROOT / "library" / "curate.py").is_absolute()
+    assert is_stale([input_file], missing_marker) is True

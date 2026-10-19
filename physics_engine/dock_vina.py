@@ -153,7 +153,7 @@ def process_molecule(
 def batch_execute_docking(
     input_csv: Path = Path("data/physics_engine/filtered_step2.csv"),
     output_csv: Path = Path("data/physics_engine/docking_results.csv"),
-    config_path: Path = Path("config/cns_targets.json")
+    config_path: Path = Path("data/target/target_index.json") 
 ) -> int:
     if not input_csv.exists() or not config_path.exists():
         logging.error("Missing inputs or target configuration.")
