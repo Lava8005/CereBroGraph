@@ -1,72 +1,114 @@
+"""Library Curation Module for CerebroGraph.
+
+Ingests raw SMILES data, canonicalizes molecular structures using RDKit,
+filters out chemically invalid strings, and generates deterministic, 
+cryptographically stable InChIKey-based candidate codes.
+Utilizes chunked multiprocessing to eliminate IPC bottlenecks.
+"""
+
 import csv
 import logging
 import os
-import concurrent.futures
 from itertools import islice
 from pathlib import Path
-from typing import Optional, Dict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import List, Dict, Optional
 
+# Suppress verbose RDKit warnings for malformed molecules during bulk ingestion
 from rdkit import Chem
+from rdkit import RDLogger
+RDLogger.DisableLog('rdApp.*')
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-def process_single_smiles(row: Dict[str, str]) -> Optional[Dict[str, str]]:
-    raw_smiles = row.get("smiles", "")
-    try:
-        mol = Chem.MolFromSmiles(raw_smiles)
-        if mol is None: 
-            return None
-        frags = Chem.GetMolFrags(mol, asMols=True)
-        if not frags: 
-            return None
-        largest_frag = max(frags, key=lambda m: m.GetNumHeavyAtoms())
-        clean_smiles = Chem.MolToSmiles(largest_frag, canonical=True)
-        return {"source_id": row.get("source_id", row.get("zinc_id", "UNKNOWN")), "smiles": clean_smiles}
-    except Exception:
-        return None
 
-def process_large_library(
-    input_csv: Path = Path("data/library/raw/zinc_subset.csv"),
-    output_csv: Path = Path("data/library/curated_library.csv"), 
-    batch_size: int = 5000, 
-    max_workers: Optional[int] = None
-) -> int:
-    workers = max_workers or max(1, (os.cpu_count() or 2) - 1)
+def process_chunk(batch: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Worker function: Canonicalize SMILES and generate stable InChIKeys."""
+    valid_molecules = []
     
+    for row in batch:
+        raw_smiles = row.get("smiles", "").strip()
+        source_id = row.get("source_id", "UNKNOWN").strip()
+        
+        if not raw_smiles:
+            continue
+            
+        # 1. Parse and Validate Structure
+        mol = Chem.MolFromSmiles(raw_smiles)
+        if mol is None:
+            continue
+            
+        try:
+            # 2. Canonicalize SMILES (Ensure consistency)
+            canonical_smiles = Chem.MolToSmiles(mol, canonical=True)
+            
+            # 3. Generate Deterministic Primary Key
+            # InChIKey is a 27-character hashed representation of the molecular topology
+            inchi_key = Chem.inchi.MolToInchiKey(mol)
+            candidate_code = f"MOL-{inchi_key[:10]}"
+            
+            valid_molecules.append({
+                "candidate_code": candidate_code,
+                "source_id": source_id,
+                "smiles": canonical_smiles
+            })
+        except Exception:
+            # Catch rare stereochemistry parsing failures
+            continue
+            
+    return valid_molecules
+
+
+def batch_curate_library(
+    input_csv: Path = Path("data/library/raw/zinc_subset.csv"),
+    output_csv: Path = Path("data/library/curated_library.csv"),
+    chunk_size: int = 1000
+) -> int:
+    """Orchestrate chunked multi-processing for high-throughput curation."""
     if not input_csv.exists():
-        logging.warning(f"Missing raw library at {input_csv}. Creating mock candidate.")
-        input_csv.parent.mkdir(parents=True, exist_ok=True)
-        input_csv.write_text("smiles,source_id\nCC(=O)OC1=CC=CC=C1C(=O)O,ASPIRIN\n")
+        logging.error(f"Missing raw library file at {input_csv}. Run downloader first.")
+        return 0
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    valid_count = 0
+    
+    total_processed = 0
+    total_retained = 0
+    
+    # Determine optimal worker count (Leave 1 core for OS to prevent locking)
+    max_workers = max(1, os.cpu_count() - 1)
     
     with open(input_csv, "r", encoding="utf-8") as infile, \
          open(output_csv, "w", newline="", encoding="utf-8") as outfile:
-        
+         
         reader = csv.DictReader(infile)
         writer = csv.DictWriter(outfile, fieldnames=["candidate_code", "source_id", "smiles"])
         writer.writeheader()
         
-        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            
+            # Read CSV lazily in chunks to maintain O(1) memory footprint
             while True:
-                batch_rows = list(islice(reader, batch_size))
-                if not batch_rows:
+                chunk = list(islice(reader, chunk_size))
+                if not chunk:
                     break
-                
-                results = list(executor.map(process_single_smiles, batch_rows))
-                
-                for res in results:
-                    if res is not None:
-                        valid_count += 1
-                        res["candidate_code"] = f"OV-{valid_count:06d}"
-                        writer.writerow(res)
-                        
-    logging.info(f"Curated {valid_count} molecules.")
-    return valid_count
+                    
+                total_processed += len(chunk)
+                futures.append(executor.submit(process_chunk, chunk))
+            
+            # Collect results as they complete
+            for future in as_completed(futures):
+                try:
+                    valid_chunk = future.result()
+                    if valid_chunk:
+                        writer.writerows(valid_chunk)
+                        total_retained += len(valid_chunk)
+                except Exception as e:
+                    logging.error(f"Worker process failed: {e}")
+                    
+    logging.info(f"Curation complete. Ingested: {total_processed} | Retained: {total_retained}")
+    return total_retained
 
-# Backward compatibility alias
-process_library = process_large_library
 
 if __name__ == "__main__":
-    process_large_library()
+    batch_curate_library()

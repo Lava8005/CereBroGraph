@@ -1,19 +1,37 @@
+"""TDD Suite for GNN Training Lifecycle and Evaluation Metrics."""
+
 import pytest
 import torch
-from pathlib import Path
-from vector_engine.gnn_model import BBBGraphModel
+import torch.nn as nn
+from unittest.mock import patch, MagicMock
+from vector_engine.train_eval import evaluate_model
+from vector_engine.device_manager import DeviceManager
 
-def test_model_checkpoint_serialization(tmp_path: Path):
-    """Ensure the model's state_dict can be successfully written to disk."""
-    checkpoint_dir = tmp_path / "checkpoints"
-    checkpoint_dir.mkdir(exist_ok=True)
-    checkpoint_path = checkpoint_dir / "best_bbb_gnn.pt"
+def test_evaluate_model_metrics():
+    """Ensure ROC-AUC, F1, and Precision are mathematically accurate during validation."""
+    dm = DeviceManager(force_cpu=True)
     
-    # Initialize dummy model
-    model = BBBGraphModel(num_node_features=5, hidden_dim=64)
+    # Mock a dummy model returning deterministic logits
+    mock_model = MagicMock()
+    # Logits > 0 = Sigmoid > 0.5 (Positive prediction)
+    # Logits < 0 = Sigmoid < 0.5 (Negative prediction)
+    mock_model.return_value = torch.tensor([[-2.0], [2.0], [2.0], [-2.0]])
     
-    # Simulate saving best weights
-    torch.save(model.state_dict(), checkpoint_path)
+    # Mock a Batch object
+    class MockBatch:
+        x, edge_index, batch = None, None, None
+        edge_attr, global_features = None, None
+        y = torch.tensor([0, 1, 0, 1]) # 2 True Positives, 1 False Pos, 1 False Neg
+        
+        def to(self, device): return self
+        
+    mock_loader = [MockBatch()]
+    criterion = nn.BCEWithLogitsLoss()
     
-    assert checkpoint_path.exists()
-    assert checkpoint_path.stat().st_size > 1000  # Verify it's not an empty file
+    metrics, loss = evaluate_model(mock_model, mock_loader, criterion, dm)
+    
+    # 2 predictions were positive, 1 was correct (Precision = 0.5)
+    assert metrics["precision"] == 0.5
+    # 2 actual positives, 1 was found (Recall = 0.5)
+    assert metrics["recall"] == 0.5
+    assert "roc_auc" in metrics

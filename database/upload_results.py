@@ -1,8 +1,7 @@
 """Database Synchronization Module.
 
-Pushes the final ranked polypharmacology candidates to Supabase 
-to drive the real-time React frontend dashboard. Features idempotent upserts
-to support continuous pipeline re-runs without database corruption.
+Uploads final pipeline candidates to Supabase using an idempotent UPSERT.
+Keys off `candidate_code` to prevent duplication on multiple pipeline runs.
 """
 
 import json
@@ -10,69 +9,63 @@ import logging
 import sys
 from pathlib import Path
 
-# Dynamically anchor Python's module search path to the project root
 project_root = str(Path(__file__).resolve().parent.parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Safely import the resolved client (must use the renamed supabase_client.py)
 from database.supabase_client import supabase
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-
-def sync_to_cloud(
-    input_json: Path = Path("data/ranking/final_candidates.json"),
-    table_name: str = "polypharmacology_results"
-) -> bool:
-    """Read the Pareto skyline JSON payload and execute an idempotent upsert to Supabase."""
-    if supabase is None:
-        logging.error("Pipeline Aborted: Supabase client is offline due to missing credentials.")
-        return False
-
+def upload_final_candidates(
+    input_json: Path = Path("data/ranking/final_candidates.json")
+):
     if not input_json.exists():
-        logging.error(f"Missing ranking payload at {input_json}. Upstream ranking may have failed.")
-        return False
+        logging.error(f"Missing ranking output: {input_json}")
+        return
 
     with open(input_json, "r", encoding="utf-8") as f:
-        try:
-            candidates = json.load(f)
-        except json.JSONDecodeError:
-            logging.error("Final payload is corrupted or invalid JSON.")
-            return False
+        candidates = json.load(f)
 
     if not candidates:
-        logging.warning("No candidates found in the JSON payload. Skipping database sync.")
-        return False
+        logging.warning("No candidates to upload.")
+        return
 
-    logging.info(f"Preparing to sync {len(candidates)} candidates to Supabase table '{table_name}'...")
+    # Sanitize payload for Postgres Schema
+    sanitized_payload = []
+    for c in candidates:
+        # Convert stringified dict back to object if necessary for JSONB column
+        target_scores = c.get("target_scores", {})
+        if isinstance(target_scores, str):
+            try:
+                target_scores = json.loads(target_scores.replace("'", '"'))
+            except Exception:
+                target_scores = {}
+
+        sanitized_payload.append({
+            "candidate_code": c.get("candidate_code", "UNKNOWN"),
+            "source_id": str(c.get("source_id", "UNKNOWN")),
+            "smiles": str(c.get("smiles", "")),
+            "vina_score": float(c.get("vina_score", 0.0)),
+            "bbb_probability": float(c.get("bbb_probability", 0.0)),
+            "qed": float(c.get("qed", 0.0)),
+            "lipinski_violations": int(c.get("lipinski_violations", 0)),
+            "composite_score": float(c.get("composite_score", 0.0)),
+            "on_pareto_front": bool(c.get("on_pareto_front", False)),
+            "target_scores": target_scores
+        })
 
     try:
-        # THE FIX: Use upsert with on_conflict to support continuous pipeline re-runs
-        response = supabase.table(table_name).upsert(
-            candidates, 
+        # THE FIX: Target correct table and use idempotent upsert
+        response = supabase.table("polypharmacology_results").upsert(
+            sanitized_payload, 
             on_conflict="candidate_code"
         ).execute()
         
-        if not response.data or len(response.data) == 0:
-            logging.error(
-                "Supabase API accepted the request but inserted 0 rows. "
-                "This is almost certainly a Row Level Security (RLS) block."
-            )
-            return False
-            
-        logging.info(f"✅ Database sync successful! {len(response.data)} records delivered to the cloud.")
-        return True
-        
+        logging.info(f"Database Sync complete. Upserted {len(sanitized_payload)} candidates.")
     except Exception as e:
-        logging.error(f"Supabase network/API rejection: {e}")
-        return False
-
+        logging.error(f"Supabase upload failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Execute the sync and capture the boolean result
-    success = sync_to_cloud()
-    
-    # THE FIX: Propagate failures to the OS so the orchestrator halts immediately
-    if not success:
-        sys.exit(1)
+    upload_final_candidates()

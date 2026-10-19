@@ -36,22 +36,24 @@ def parse_target_scores(score_val) -> dict:
 
 
 def extract_weighted_affinity(score_dict: dict, weights_dict: dict) -> float:
-    """Enforce user-weighted Polypharmacology (or equal mean if no weights provided)."""
-    if not score_dict:
+    """Calculate weighted affinity with explicit penalties for missing targets."""
+    if not weights_dict:
         return 0.0
         
     total_score = 0.0
-    total_weight = 0.0
+    # THE FIX: Denominator is derived from the EXPECTED targets, not the actual scores
+    total_expected_weight = sum(float(w) for w in weights_dict.values())
     
-    for disease, score in score_dict.items():
-        w = float(weights_dict.get(disease, 1.0))
-        total_score += float(score) * w
-        total_weight += w
-        
-    if total_weight == 0:
+    if total_expected_weight == 0:
         return 0.0
         
-    return round(total_score / total_weight, 3)
+    for disease, weight in weights_dict.items():
+        w = float(weight)
+        # If the molecule failed to dock on this target, it contributes 0.0
+        score = float(score_dict.get(disease, 0.0))
+        total_score += score * w
+        
+    return round(total_score / total_expected_weight, 3)
 
 
 def _get_target_weights() -> dict:

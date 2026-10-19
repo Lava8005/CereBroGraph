@@ -33,6 +33,21 @@ def calculate_lipinski(mol: Chem.Mol) -> int:
     if Descriptors.NumHAcceptors(mol) > 10: violations += 1
     return violations
 
+def calculate_cns_likeness(mol: Chem.Mol) -> bool:
+    """Strict Blood-Brain Barrier (BBB) physicochemical heuristic filter."""
+    try:
+        mw = Descriptors.MolWt(mol)
+        tpsa = Descriptors.TPSA(mol)
+        hbd = Descriptors.NumHDonors(mol)
+        
+        # Golden rules for CNS penetration (Pajouhesh & Lenz, 2005)
+        if mw > 500 or tpsa > 90 or hbd > 3:
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def batch_compute_drug_likeness(
     input_csv: Path = Path("data/library/curated_library.csv"),
     output_csv: Path = Path("data/physics_engine/filtered_step1.csv"),
@@ -65,8 +80,11 @@ def batch_compute_drug_likeness(
             for row in batch_rows:
                 mol = Chem.MolFromSmiles(row["smiles"])
                 if mol is not None:
-                    # THE FIX: Drop metalloids/halogens unsupported by Vina early
                     if not is_vina_compatible(mol):
+                        continue
+                    
+                    # THE FIX: Apply strict CNS limits
+                    if not calculate_cns_likeness(mol):
                         continue
                         
                     violations = calculate_lipinski(mol)

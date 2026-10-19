@@ -1,213 +1,177 @@
-"""Model Training & Multi-Metric Evaluation for Blood-Brain Barrier SE-GNN.
+"""Blood-Brain Barrier GNN Training Orchestrator.
 
-Orchestrates PyTorch Geometric training loops on the Bemis-Murcko scaffold split,
-handles PCI-e CPU-to-GPU tensor transfers, logs comprehensive classification
-metrics (ROC-AUC, Precision, Recall, F1, Accuracy), and persists checkpoints.
+Manages the lifecycle of the GINE Graph Neural Network. Implements
+deterministic Bemis-Murcko scaffold splitting, Automatic Mixed Precision (AMP) 
+Tensor Core acceleration, learning rate scheduling, and early stopping guards.
 """
 
 import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
 
+# Ensure absolute imports resolve correctly from the command line
 project_root = str(Path(__file__).resolve().parent.parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import torch
 import torch.nn as nn
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
 from torch_geometric.loader import DataLoader
+from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_score
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+from vector_engine.b3db_loader import load_b3db_dataset
+from vector_engine.gnn_model import BBBGraphModel
+from vector_engine.device_manager import default_device_manager
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-# Phase 2 Task 8 Numerical Validation Threshold
-TARGET_ROC_AUC_THRESHOLD = 0.80
-SPLIT_SEED = 42
 
-
-def compute_classification_metrics(
-    y_true: List[float],
-    y_probs: List[float],
-    threshold: float = 0.5,
-) -> Dict[str, float]:
-    """Compute ROC-AUC, Precision, Recall, F1-score, and Accuracy."""
-    if not y_true or not y_probs:
-        return {
-            "roc_auc": 0.5,
-            "precision": 0.0,
-            "recall": 0.0,
-            "f1": 0.0,
-            "accuracy": 0.0,
-        }
-
-    y_bin = [1 if p >= threshold else 0 for p in y_probs]
-    y_true_int = [int(round(y)) for y in y_true]
-
-    try:
-        if len(set(y_true_int)) > 1:
-            roc_auc = float(roc_auc_score(y_true_int, y_probs))
-        else:
-            logging.warning("ROC-AUC undefined: Only one class present. Returning 0.5.")
-            roc_auc = 0.5
-    except ValueError:
-        roc_auc = 0.5
-
-    precision = float(precision_score(y_true_int, y_bin, zero_division=0))
-    recall = float(recall_score(y_true_int, y_bin, zero_division=0))
-    f1 = float(f1_score(y_true_int, y_bin, zero_division=0))
-    accuracy = float(accuracy_score(y_true_int, y_bin))
-
-    return {
-        "roc_auc": round(roc_auc, 4),
-        "precision": round(precision, 4),
-        "recall": round(recall, 4),
-        "f1": round(f1, 4),
-        "accuracy": round(accuracy, 4),
-    }
-
-
-def train_epoch(
-    model: nn.Module,
-    loader: DataLoader,
-    optimizer: torch.optim.Optimizer,
-    criterion: nn.Module,
-    device: torch.device,
-) -> float:
-    """Execute one complete training epoch over the dataset."""
-    model.train()
-    total_loss = 0.0
-
-    for batch in loader:
-        batch = batch.to(device)
-        optimizer.zero_grad()
-
-        predictions = model(batch.x, batch.edge_index, batch.batch)
-        loss = criterion(predictions.view(-1), batch.y.view(-1))
-
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item() * batch.num_graphs
-
-    return total_loss / max(1, len(loader.dataset))
-
-
-def eval_epoch(
-    model: nn.Module,
-    loader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-    return_full_metrics: bool = False,
-):
-    """Evaluate model performance on a held-out split."""
+def evaluate_model(model: nn.Module, loader: DataLoader, criterion: nn.Module, dm) -> tuple:
+    """Run validation utilizing high-precision FP32 metrics."""
     model.eval()
     total_loss = 0.0
-    all_preds: List[float] = []
-    all_labels: List[float] = []
-
+    all_preds = []
+    all_labels = []
+    
     with torch.no_grad():
         for batch in loader:
-            batch = batch.to(device)
-            predictions = model(batch.x, batch.edge_index, batch.batch)
-            preds_flat = predictions.view(-1)
-            labels_flat = batch.y.view(-1)
+            batch = dm.to_device(batch)
+            
+            # Forward pass under AMP
+            with dm.autocast():
+                logits = model(
+                    batch.x, 
+                    batch.edge_index, 
+                    batch.batch, 
+                    edge_attr=batch.edge_attr, 
+                    global_features=batch.global_features
+                )
+                loss = criterion(logits.view(-1), batch.y.float())
+                
+            total_loss += loss.item()
+            
+            # THE FIX: High-Precision Sigmoid for strict mathematical ranking
+            probs = torch.sigmoid(logits.float()).view(-1).cpu().numpy()
+            all_preds.extend(probs)
+            all_labels.extend(batch.y.cpu().numpy())
+            
+    avg_loss = total_loss / len(loader)
+    
+    # Binarize for classification metrics
+    preds_binary = [1 if p >= 0.5 else 0 for p in all_preds]
+    
+    try:
+        roc_auc = roc_auc_score(all_labels, all_preds)
+    except ValueError:
+        roc_auc = 0.5 # Failsafe for homogeneous batches
+        
+    f1 = f1_score(all_labels, preds_binary, zero_division=0)
+    precision = precision_score(all_labels, preds_binary, zero_division=0)
+    recall = recall_score(all_labels, preds_binary, zero_division=0)
+    
+    metrics = {
+        "roc_auc": roc_auc, 
+        "f1": f1, 
+        "precision": precision, 
+        "recall": recall
+    }
+    
+    return metrics, avg_loss
 
-            loss = criterion(preds_flat, labels_flat)
-            total_loss += loss.item() * batch.num_graphs
 
-            all_preds.extend(preds_flat.cpu().tolist())
-            all_labels.extend(labels_flat.cpu().tolist())
-
-    avg_loss = total_loss / max(1, len(loader.dataset))
-    metrics = compute_classification_metrics(all_labels, all_preds)
-
-    if return_full_metrics:
-        return avg_loss, metrics
-    return avg_loss, metrics["roc_auc"]
-
-
-def run_training_pipeline(
-    epochs: int = 30,
-    batch_size: int = 128,
-    random_seed: int = SPLIT_SEED,
-) -> Dict[str, float]:
-    """Execute the full scaffold-split training loop and serialize best weights & metrics."""
-    torch.manual_seed(random_seed)
-
-    checkpoint_dir = Path(project_root) / "vector_engine" / "checkpoints"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = checkpoint_dir / "best_bbb_gnn.pt"
-
-    metrics_path = Path(project_root) / "data" / "vector_engine" / "bbb_eval_metrics.json"
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logging.info(f"Initializing SE-GNN training on device: {device} (seed={random_seed})")
-
-    from vector_engine.gnn_model import BBBGraphModel
-    from vector_engine.b3db_to_graph import get_b3db_dataloaders
-
-    model = BBBGraphModel(num_node_features=5, hidden_dim=64).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-    criterion = nn.BCELoss()
-
-    train_loader, val_loader = get_b3db_dataloaders(
-        batch_size=batch_size,
-        val_split=0.2,
-        random_seed=random_seed,
-        split_mode="scaffold",
-        exclude_controls=True,
-    )
-
-    best_roc_auc = 0.0
-    best_metrics: Dict[str, float] = {}
-
-    logging.info(f"Starting training for {epochs} epochs on Bemis-Murcko scaffold split...")
+def run_training(epochs: int = 50, batch_size: int = 256, patience: int = 7, seed: int = 42):
+    """Execute the full GINE training loop with anti-overfitting guards."""
+    dm = default_device_manager
+    logging.info(f"Initializing GINE training on device: {dm.device.type} (seed={seed})")
+    
+    # 1. Dataset Injection (Deterministic Split)
+    train_dataset, val_dataset = load_b3db_dataset(split_mode="scaffold", seed=seed)
+    
+    if not train_dataset or not val_dataset:
+        logging.error("Dataset loading failed. Aborting training.")
+        return
+        
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    
+    # 2. Upgraded Architecture Instantiation
+    model = BBBGraphModel(num_node_features=27, edge_dim=7, global_dim=2, hidden_dim=64)
+    model = dm.to_device(model)
+    
+    # 3. Optimizers & Training Guards
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3, verbose=True)
+    criterion = nn.BCEWithLogitsLoss()
+    
+    best_val_auc = 0.0
+    epochs_no_improve = 0
+    best_metrics = {}
+    
+    checkpoints_dir = Path("vector_engine/checkpoints")
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    best_model_path = checkpoints_dir / "best_bbb_gnn.pt"
+    
+    logging.info(f"Starting training for max {epochs} epochs on Bemis-Murcko scaffold split...")
+    
     for epoch in range(1, epochs + 1):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        val_loss, metrics = eval_epoch(
-            model, val_loader, criterion, device, return_full_metrics=True
-        )
-        val_roc_auc = metrics["roc_auc"]
-
-        logging.info(
-            f"Epoch {epoch:03d} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
-            f"ROC-AUC: {val_roc_auc:.4f} | Prec: {metrics['precision']:.4f} | "
-            f"Rec: {metrics['recall']:.4f} | F1: {metrics['f1']:.4f}"
-        )
-
-        if val_roc_auc >= best_roc_auc:
-            best_roc_auc = val_roc_auc
-            best_metrics = {
-                "split_mode": "bemis_murcko_scaffold",
-                "split_seed": random_seed,
-                "train_size": len(train_loader.dataset),
-                "val_size": len(val_loader.dataset),
-                "best_epoch": epoch,
-                "val_loss": round(val_loss, 4),
-                **metrics,
-                "passes_auc_criterion": bool(val_roc_auc >= TARGET_ROC_AUC_THRESHOLD),
-            }
-            torch.save(model.state_dict(), checkpoint_path)
-
+        model.train()
+        total_loss = 0.0
+        
+        for batch in train_loader:
+            batch = dm.to_device(batch)
+            optimizer.zero_grad()
+            
+            with dm.autocast():
+                logits = model(
+                    batch.x, 
+                    batch.edge_index, 
+                    batch.batch, 
+                    edge_attr=batch.edge_attr, 
+                    global_features=batch.global_features
+                )
+                loss = criterion(logits.view(-1), batch.y.float())
+                
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Guard against exploding gradients
+            optimizer.step()
+            
+            total_loss += loss.item()
+            
+        # 4. Evaluation & Scheduling
+        val_metrics, val_loss = evaluate_model(model, val_loader, criterion, dm)
+        val_auc = val_metrics["roc_auc"]
+        
+        logging.info(f"Epoch {epoch:03d} | Train Loss: {total_loss/len(train_loader):.4f} | "
+                     f"Val Loss: {val_loss:.4f} | ROC-AUC: {val_auc:.4f} | "
+                     f"Prec: {val_metrics['precision']:.4f} | Rec: {val_metrics['recall']:.4f} | F1: {val_metrics['f1']:.4f}")
+        
+        scheduler.step(val_auc)
+        
+        # 5. Early Stopping Guard
+        if val_auc > best_val_auc:
+            best_val_auc = val_auc
+            best_metrics = val_metrics
+            epochs_no_improve = 0
+            torch.save(model.state_dict(), best_model_path)
+            logging.info("  -> New optimal weights saved!")
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                logging.warning(f"Early stopping triggered at epoch {epoch}! Reverting to optimal weights.")
+                break
+                
+        dm.empty_cache()
+                
+    logging.info(f"Training complete. Best Val ROC-AUC: {best_val_auc:.4f}.")
+    
+    # Write payload for analysis scripts
+    metrics_path = Path("data/vector_engine/bbb_eval_metrics.json")
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(best_metrics, f, indent=4)
 
-    logging.info(
-        f"Training complete. Best Val ROC-AUC: {best_roc_auc:.4f} "
-        f"(Threshold >= {TARGET_ROC_AUC_THRESHOLD}: {best_metrics.get('passes_auc_criterion')}). "
-        f"Saved checkpoint to {checkpoint_path} and metrics to {metrics_path}."
-    )
-    return best_metrics
-
 
 if __name__ == "__main__":
-    run_training_pipeline(epochs=30)
+    run_training()

@@ -2,42 +2,40 @@ import pandas as pd
 import numpy as np
 
 def compute_pareto_front(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Optimized 3-objective Pareto identification via sorted sweeping.
-    Accepts and returns DataFrames directly to prevent redundant dict serialization.
-    """
-    if 'vina_score' not in df.columns or len(df) == 0:
+    """Identify the non-dominated Pareto skyline using lexicographical sorting."""
+    if df.empty or not {"vina_score", "bbb_probability", "qed"}.issubset(df.columns):
+        df["on_pareto_front"] = False
         return df
 
-    # Invert vina_score so higher is better across all 3 objectives
-    scores = df[['vina_score', 'bbb_probability', 'qed']].copy()
-    scores['vina_score'] = -scores['vina_score']
+    # THE FIX: Lexicographical sort to resolve tie-breaker shielding
+    df = df.sort_values(
+        by=["vina_score", "bbb_probability", "qed"], 
+        ascending=[True, False, False]
+    ).reset_index(drop=True)
+
+    skyline = []
     
-    # Convert to NumPy for zero-overhead iteration
-    cost_array = scores.values
-    is_efficient = np.ones(cost_array.shape[0], dtype=bool)
-    
-    # Sort by the first objective (vina) descending
-    sort_indices = np.argsort(cost_array[:, 0])[::-1]
-    
-    # The current Pareto front against which to check
-    front = []
-    
-    for idx in sort_indices:
-        point = cost_array[idx]
-        is_pareto = True
-        
-        # Check against already found Pareto points (which we know have >= Vina score)
-        for front_point in front:
-            # If a previously seen point is >= in both BBB and QED, it dominates this point
-            # (Strict > is guaranteed because Vina is >= due to the sort order)
-            if front_point[1] >= point[1] and front_point[2] >= point[2]:
-                is_pareto = False
+    for i, row in df.iterrows():
+        dominated = False
+        for front_row in skyline:
+            # Check if front_row strictly dominates row
+            better_vina = front_row["vina_score"] <= row["vina_score"]
+            better_bbb = front_row["bbb_probability"] >= row["bbb_probability"]
+            better_qed = front_row["qed"] >= row["qed"]
+            
+            strictly_better = (
+                front_row["vina_score"] < row["vina_score"] or 
+                front_row["bbb_probability"] > row["bbb_probability"] or 
+                front_row["qed"] > row["qed"]
+            )
+            
+            if better_vina and better_bbb and better_qed and strictly_better:
+                dominated = True
                 break
                 
-        is_efficient[idx] = is_pareto
-        if is_pareto:
-            front.append(point)
+        if not dominated:
+            skyline.append(row)
 
-    df['on_pareto_front'] = is_efficient
+    skyline_ids = {r.name for r in skyline}
+    df["on_pareto_front"] = df.index.isin(skyline_ids)
     return df

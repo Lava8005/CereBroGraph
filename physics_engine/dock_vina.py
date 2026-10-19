@@ -1,200 +1,229 @@
-"""AutoDock Vina Physics Engine. 
+"""AutoDock Vina Physics Engine for CerebroGraph.
 
-Generates 3D ligand conformers via RDKit/Meeko, manages AutoDock Vina binaries, 
-orchestrates multi-threaded docking across polypharmacology targets, and 
-safely handles OS-level timeouts to prevent Deadlocks.
+Executes multi-target thermodynamic docking simulations.
+Optimized to perform $\mathcal{O}(M)$ RDKit/Meeko 3D embedding (once per molecule)
+rather than $\mathcal{O}(M \times T)$. Features real-time CSV appending for 
+power-failure resilience and instant pipeline resumption.
 """
 
 import csv
 import json
 import logging
 import os
-import platform
-import re
-import ssl
 import subprocess
 import tempfile
-import urllib.request
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Dict, Tuple, Set, Optional
 
-import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
 try:
     from meeko import MoleculePreparation, PDBQTWriterLegacy
 except ImportError:
-    logging.warning("Meeko not installed. Ligand PDBQT preparation will fail.")
+    logging.warning("Meeko missing. Fallback strings will be used (expect failures).")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
-def ensure_vina_binary(bin_dir: Path) -> Path:
-    """Download the AutoDock Vina binary, bypassing strict firewall SSL checks."""
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    is_windows = platform.system().lower() == "windows"
-    binary_name = "vina.exe" if is_windows else "vina"
-    binary_path = bin_dir / binary_name
-    
-    if binary_path.exists():
-        return binary_path
-        
-    url = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.5/vina_1.2.5_win.exe" if is_windows else \
-          "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.5/vina_1.2.5_linux_x86_64"
-        
-    logging.info(f"Downloading Vina binary for {platform.system()}...")
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    
-    with urllib.request.urlopen(url, context=ctx) as response, open(binary_path, 'wb') as out_file:
-        out_file.write(response.read())
-    if not is_windows:
-        os.chmod(binary_path, 0o755)
-    return binary_path
-
-
-def parse_vina_score(stdout: str) -> Optional[float]:
-    """Extract the best binding affinity (kcal/mol) from Vina's stdout."""
-    match = re.search(r'\s+1\s+([-+]\d+\.\d+)\s+', stdout)
-    if match: return float(match.group(1))
-    return None
+def get_completed_candidates(output_csv: Path) -> Set[str]:
+    """Extract candidate codes already processed to allow seamless resumption."""
+    completed = set()
+    if output_csv.exists():
+        with open(output_csv, "r", encoding="utf-8") as f:
+            try:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if "candidate_code" in row:
+                        completed.add(row["candidate_code"])
+            except csv.Error:
+                pass
+    return completed
 
 
 def prepare_ligand_pdbqt(smiles: str) -> Optional[str]:
-    """Generate a 3D conformer and convert to PDBQT format using RDKit & Meeko."""
+    """Generate 3D conformer and Meeko PDBQT string exactly once per molecule."""
+    mol = Chem.MolFromSmiles(smiles)
+    if not mol:
+        return None
+        
+    mol = Chem.AddHs(mol)
+    # Generate 3D coordinates using ETKDGv3
+    if AllChem.EmbedMolecule(mol, AllChem.ETKDGv3()) != 0:
+        return None
+    # Optimize geometry with MMFF94 force field
     try:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is None: return None
-        mol = Chem.AddHs(mol)
-        
-        # Geometry Optimization
-        if AllChem.EmbedMolecule(mol, randomSeed=42, maxAttempts=50) == -1:
-            AllChem.EmbedMolecule(mol, useRandomCoords=True, randomSeed=42, maxAttempts=50)
-        AllChem.MMFFOptimizeMolecule(mol, maxIters=200)
-        
-        # Meeko API Compliance
+        AllChem.MMFFOptimizeMolecule(mol)
+    except Exception:
+        pass 
+
+    try:
         preparator = MoleculePreparation()
-        setups = preparator.prepare(mol)
-        if not setups: return None
-        
-        res = PDBQTWriterLegacy.write_string(setups[0])
-        return res[0] if isinstance(res, tuple) else res
+        preparator.prepare(mol)
+        # Handle Meeko v0.5+ API changes
+        if hasattr(preparator, 'write_pdbqt_string'):
+            return preparator.write_pdbqt_string()
+        else:
+            return PDBQTWriterLegacy.write_string(preparator)[0]
     except Exception as e:
+        logging.debug(f"Meeko preparation failed for {smiles}: {e}")
         return None
 
 
-def dock_single_target(
-    vina_exe: Path, 
-    ligand_smiles: str, 
-    candidate_code: str,
-    target_config: Dict,
-    work_dir: Path
-) -> Tuple[str, float]:
-    """Execute 3D docking simulation with a strict Watchdog Timeout."""
-    disease = target_config.get("disease", "Unknown")
-    pdbqt_str = target_config.get("pdbqt")
-    active_site = target_config.get("active_site", {})
+def dock_precomputed_target(vina_exe: str, ligand_pdbqt_path: str, target: dict) -> Tuple[str, float]:
+    """Execute AutoDock Vina using a pre-computed 3D ligand file."""
+    disease = target.get("disease", "Unknown")
+    receptor_pdbqt = target.get("pdbqt")
+    grid = target.get("grid")
     
-    if not pdbqt_str or not active_site: return disease, 0.0
-    target_pdbqt = Path(pdbqt_str)
-    if not target_pdbqt.exists(): return disease, 0.0
+    if not receptor_pdbqt or not grid or not os.path.exists(receptor_pdbqt):
+        return disease, 0.0
 
-    ligand_pdbqt_data = prepare_ligand_pdbqt(ligand_smiles)
-    if not ligand_pdbqt_data: return disease, 0.0
-        
-    fd, temp_lig_path = tempfile.mkstemp(suffix=".pdbqt", dir=work_dir)
-    with os.fdopen(fd, 'w') as f: f.write(ligand_pdbqt_data)
-        
+    with open(grid, "r", encoding="utf-8") as f:
+        g = json.load(f)
+
+    cmd = [
+        vina_exe,
+        "--receptor", receptor_pdbqt,
+        "--ligand", ligand_pdbqt_path,
+        "--center_x", str(g["center_x"]),
+        "--center_y", str(g["center_y"]),
+        "--center_z", str(g["center_z"]),
+        "--size_x", str(g["size_x"]),
+        "--size_y", str(g["size_y"]),
+        "--size_z", str(g["size_z"]),
+        "--cpu", "1",
+        "--exhaustiveness", "8"
+    ]
+
     try:
-        cmd = [
-            str(vina_exe),
-            "--receptor", str(target_pdbqt),
-            "--ligand", temp_lig_path,
-            "--center_x", str(active_site.get("center_x", 0)),
-            "--center_y", str(active_site.get("center_y", 0)),
-            "--center_z", str(active_site.get("center_z", 0)),
-            "--size_x", str(active_site.get("size_x", 20)),
-            "--size_y", str(active_site.get("size_y", 20)),
-            "--size_z", str(active_site.get("size_z", 20)),
-            "--cpu", "1",
-            "--exhaustiveness", "8"
-        ]
-        
-        # THE FIX: 45-second Watchdog Timer to prevent Zombie Threads
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=45)
-        affinity = parse_vina_score(result.stdout)
-        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        for line in result.stdout.split("\n"):
+            if line.strip().startswith("1"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return disease, float(parts[1])
     except subprocess.TimeoutExpired:
-        logging.warning(f"Vina TIMEOUT for {candidate_code} on {disease}. Terminating thread.")
-        affinity = 0.0
-    except subprocess.CalledProcessError as e:
-        logging.debug(f"Vina failed for {candidate_code} on {disease}")
-        affinity = 0.0
-    finally:
-        if os.path.exists(temp_lig_path):
-            try: os.remove(temp_lig_path)
-            except OSError: pass
-            
-    return disease, affinity if affinity is not None else 0.0
+        logging.warning(f"Vina TIMEOUT for {ligand_pdbqt_path} on {disease}. Terminating.")
+    except Exception as e:
+        logging.debug(f"Vina crashed for {disease}: {e}")
+
+    return disease, 0.0
 
 
-def process_molecule(vina_exe: Path, row: pd.Series, targets: List[Dict], work_dir: Path) -> Dict:
-    candidate_code = row.get("candidate_code", "Unknown")
+def process_molecule(
+    vina_exe: str, 
+    row: dict, 
+    targets: List[dict], 
+    work_dir: Path, 
+    output_csv: Path, 
+    csv_lock: threading.Lock
+) -> dict:
+    """Worker Thread: Embeds once, docks multi-target, and streams safely to disk."""
     smiles = row.get("smiles", "")
     target_scores = {}
     
-    for target in targets:
-        disease, score = dock_single_target(vina_exe, smiles, candidate_code, target, work_dir)
-        if score < 0:
-            target_scores[disease] = score
-            
-    result = row.to_dict()
-    result["target_scores"] = target_scores
-    result["target_scores_json"] = json.dumps(target_scores)
-    return result
+    # 1. Embed 3D Conformer ONCE
+    ligand_pdbqt_data = prepare_ligand_pdbqt(smiles)
+    
+    if not ligand_pdbqt_data:
+        # Failsafe: Return 0.0 for all targets instantly without I/O
+        for t in targets:
+            target_scores[t.get("disease", "Unknown")] = 0.0
+    else:
+        # 2. Write embedded ligand to temporary file safely
+        fd, temp_lig_path = tempfile.mkstemp(suffix=".pdbqt", dir=work_dir)
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(ligand_pdbqt_data)
+                
+            # 3. Execute Vina across targets using the shared PDBQT
+            for target in targets:
+                disease, score = dock_precomputed_target(vina_exe, temp_lig_path, target)
+                target_scores[disease] = score
+        finally:
+            if os.path.exists(temp_lig_path):
+                os.remove(temp_lig_path)
+                
+    row["target_scores"] = json.dumps(target_scores)
+    
+    # 4. Stream result to CSV immediately (Thread-Safe Append)
+    if output_csv:
+        with csv_lock:
+            file_exists = output_csv.exists()
+            with open(output_csv, "a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(row)
+                
+    return row
 
 
-def batch_dock_library(
+def batch_execute_docking(
     input_csv: Path = Path("data/physics_engine/filtered_step2.csv"),
     output_csv: Path = Path("data/physics_engine/docking_results.csv"),
-    config_path: Path = Path("data/target/target_index.json"),
-    bin_dir: Path = Path("data/bin"),
-    max_workers: Optional[int] = None
-):
-    if not input_csv.exists() or not config_path.exists(): return
-    with open(config_path, "r", encoding="utf-8") as f: targets = json.load(f)
-        
-    vina_exe = ensure_vina_binary(bin_dir)
-    df = pd.read_csv(input_csv)
-    if df.empty: return df.to_csv(output_csv, index=False)
-        
-    work_dir = Path("data/physics_engine/ligand_cache")
+    config_path: Path = Path("config/cns_targets.json")
+) -> int:
+    """Orchestrate resumable multi-threaded docking."""
+    if not input_csv.exists() or not config_path.exists():
+        logging.error("Missing inputs or target configuration.")
+        return 0
+
+    # Locate Vina executable
+    vina_exe = "vina" if os.name != "nt" else "vina.exe"
+    try:
+        subprocess.run([vina_exe, "--version"], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logging.error("AutoDock Vina executable not found in system PATH.")
+        return 0
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        targets = json.load(f)
+
+    # Resumption Logic: Get molecules already processed
+    completed_codes = get_completed_candidates(output_csv)
+    
+    pending_rows = []
+    with open(input_csv, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("candidate_code") not in completed_codes:
+                pending_rows.append(row)
+
+    if not pending_rows:
+        logging.info("All candidates already docked. Skipping...")
+        return len(completed_codes)
+
+    logging.info(f"Resuming physics engine. {len(pending_rows)} candidates pending...")
+    
+    work_dir = Path("data/physics_engine/tmp_ligands")
     work_dir.mkdir(parents=True, exist_ok=True)
     
-    # THE FIX: Dynamically scale threads to maximize CPU utilization
-    if max_workers is None:
-        cores = os.cpu_count() or 4
-        max_workers = max(1, cores - 2)
-        
-    logging.info(f"Initiating ThreadPool Docking with {max_workers} threads...")
+    csv_lock = threading.Lock()
+    total_processed = len(completed_codes)
     
-    results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_molecule, vina_exe, row, targets, work_dir): row for _, row in df.iterrows()}
-        for future in as_completed(futures):
-            try: results.append(future.result())
-            except Exception: pass
-                
-    out_df = pd.DataFrame(results)
-    if "target_scores_json" in out_df.columns:
-        out_df["target_scores"] = out_df["target_scores_json"]
-        out_df.drop(columns=["target_scores_json"], inplace=True)
+    # Cap threads to prevent CPU thermal throttling (reserve 2 for OS)
+    max_threads = max(1, os.cpu_count() - 2)
+
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = {
+            executor.submit(process_molecule, vina_exe, row, targets, work_dir, output_csv, csv_lock): row
+            for row in pending_rows
+        }
         
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(output_csv, index=False)
+        for future in as_completed(futures):
+            try:
+                future.result()
+                total_processed += 1
+            except Exception as e:
+                logging.error(f"Worker thread crashed: {e}")
+
+    logging.info(f"AutoDock Vina execution completed. Total docked: {total_processed}")
+    return total_processed
+
 
 if __name__ == "__main__":
-    batch_dock_library()
+    batch_execute_docking()
