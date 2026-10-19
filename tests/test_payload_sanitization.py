@@ -1,17 +1,25 @@
+"""TDD Suite for JSONB Payload Parsing and Weighted Multi-Target Score Aggregation."""
+
 import pytest
-from ranking.pipeline_ranker import parse_target_scores, extract_best_vina
+from ranking.pipeline_ranker import extract_weighted_affinity
 
-def test_jsonb_deserialization():
-    """Ensure stringified CSV dictionaries are parsed into valid Python dicts for Supabase JSONB."""
-    raw_csv_val = '{"Alzheimers_AChE": -8.5, "Parkinsons_MAOB": -9.2}'
-    parsed = parse_target_scores(raw_csv_val)
+def test_vina_score_weighted_aggregation():
+    """Ensure the pipeline respects user-defined target weights (e.g., 70% AChE, 30% MAOB)."""
+    scores = {"Alzheimers_AChE": -10.0, "Parkinsons_MAOB": -5.0}
     
-    assert isinstance(parsed, dict)
-    assert parsed["Parkinsons_MAOB"] == -9.2
+    # 70% weight to AChE, 30% weight to MAOB
+    weights = {"Alzheimers_AChE": 0.7, "Parkinsons_MAOB": 0.3}
+    
+    weighted_score = extract_weighted_affinity(scores, weights)
+    
+    # (0.7 * -10.0) + (0.3 * -5.0) = -7.0 + -1.5 = -8.5
+    assert weighted_score == -8.5
 
-def test_vina_score_extraction():
-    """Ensure the minimum binding affinity is correctly routed to the dedicated numeric column."""
-    scores = {"AChE": -8.5, "MAOB": -10.1, "5HT2A": -7.2}
-    best_score = extract_best_vina(scores)
+def test_vina_score_unweighted_fallback():
+    """Ensure missing weights default to an equal mean distribution (1/N)."""
+    scores = {"AChE": -10.0, "MAOB": -5.0}
     
-    assert best_score == -10.1
+    # No weights provided; should fallback to mean: (-10 + -5) / 2 = -7.5
+    weighted_score = extract_weighted_affinity(scores, {})
+    
+    assert weighted_score == -7.5

@@ -1,3 +1,9 @@
+"""Drug Likeness & Atom Whitelist Filter.
+
+Evaluates synthetic accessibility, Lipinski violations, and strips molecules
+containing metalloids/metals unsupported by AutoDock Vina to prevent downstream physics crashes.
+"""
+
 import csv
 import logging
 from itertools import islice
@@ -8,6 +14,16 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors, QED
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+# THE FIX: AutoDock Vina strictly supports only these atomic numbers
+VINA_ALLOWED_ATOMS = {1, 6, 7, 8, 9, 15, 16, 17, 35, 53} # H, C, N, O, F, P, S, Cl, Br, I
+
+def is_vina_compatible(mol: Chem.Mol) -> bool:
+    """Ensure the molecule only contains atoms supported by AutoDock Vina."""
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() not in VINA_ALLOWED_ATOMS:
+            return False
+    return True
 
 def calculate_lipinski(mol: Chem.Mol) -> int:
     violations = 0
@@ -30,7 +46,7 @@ def batch_compute_drug_likeness(
     
     with open(input_csv, "r", encoding="utf-8") as infile, \
          open(output_csv, "w", newline="", encoding="utf-8") as outfile:
-        
+         
         reader = csv.DictReader(infile)
         fieldnames = list(reader.fieldnames or [])
         for col in ["qed", "lipinski_violations"]:
@@ -49,6 +65,10 @@ def batch_compute_drug_likeness(
             for row in batch_rows:
                 mol = Chem.MolFromSmiles(row["smiles"])
                 if mol is not None:
+                    # THE FIX: Drop metalloids/halogens unsupported by Vina early
+                    if not is_vina_compatible(mol):
+                        continue
+                        
                     violations = calculate_lipinski(mol)
                     if violations <= 1:
                         row["qed"] = round(QED.qed(mol), 4)

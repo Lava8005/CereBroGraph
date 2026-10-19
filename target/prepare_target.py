@@ -1,14 +1,15 @@
-"""Target Preparation Module for CerebroGraph.
+"""Target Preparation Module for CerebroGraph. 
 
-Downloads PDB structures, isolates native ligands, calculates 3D bounding boxes, 
-and generates AutoDock Vina compliant PDBQT receptor files.
+Downloads PDB structures, isolates native ligands, calculates 3D bounding boxes,  
+and generates AutoDock Vina compliant PDBQT receptor files. 
+Respects manual active_site overrides to prevent RCSB ligand lookup failures.
 """
 
 import json
 import logging
 import urllib.request
 from pathlib import Path
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -17,7 +18,11 @@ def fetch_pdb_structure(pdb_id: str, output_path: Path) -> Path:
     url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not output_path.exists():
-        urllib.request.urlretrieve(url, output_path)
+        try:
+            urllib.request.urlretrieve(url, output_path)
+        except Exception as e:
+            logging.error(f"Failed to download PDB {pdb_id}: {e}")
+            raise
     return output_path
 
 def calculate_grid_box(pdb_path: Path, ligand_id: str, padding: float = 12.0) -> Dict[str, float]:
@@ -46,20 +51,32 @@ def calculate_grid_box(pdb_path: Path, ligand_id: str, padding: float = 12.0) ->
         "size_z": round(max(z_coords) - min(z_coords) + padding, 3)
     }
 
-def prepare_single_target(pdb_id: str, ligand_res_name: str, work_dir: Path) -> Tuple[Path, Path]:
-    """Execute the full preparation pipeline for a single target."""
+def prepare_single_target(
+    pdb_id: str, 
+    ligand_res_name: str, 
+    work_dir: Path,
+    manual_active_site: Optional[Dict[str, float]] = None
+) -> Tuple[Path, Path]:
+    """Execute the full preparation pipeline, respecting manual grid overrides."""
     raw_pdb = work_dir / f"{pdb_id}.pdb"
     target_pdbqt = work_dir / f"{pdb_id}_target.pdbqt"
     grid_json = work_dir / f"{pdb_id}_grid.json"
     
     fetch_pdb_structure(pdb_id, raw_pdb)
     
-    grid_params = calculate_grid_box(raw_pdb, ligand_res_name)
+    # THE FIX: Bypass dynamic calculation if manual coordinates are provided in JSON
+    if manual_active_site and "center_x" in manual_active_site:
+        grid_params = manual_active_site
+        logging.info(f"  -> Using manually defined active_site coordinates for {pdb_id}")
+    else:
+        grid_params = calculate_grid_box(raw_pdb, ligand_res_name)
+        logging.info(f"  -> Auto-calculated grid coordinates using ligand {ligand_res_name}")
+
     with open(grid_json, "w", encoding="utf-8") as f:
         json.dump(grid_params, f, indent=4)
         
-    # Stub: In production, insert PyMOL/MGLTools binary call here to convert PDB to PDBQT.
-    # For CI/CD bypassing, we touch the file if it doesn't exist.
+    # Stub: In production, insert PyMOL/MGLTools/Meeko binary call here to convert PDB to PDBQT.
+    # For now, we touch the file to unblock the pipeline if it doesn't exist.
     if not target_pdbqt.exists():
         target_pdbqt.write_text("REMARK MOCK PDBQT GENERATED\n")
         
@@ -74,30 +91,34 @@ def batch_prepare_cns_targets(
     if not config_path.exists():
         logging.error(f"Target configuration missing at {config_path}")
         return
-
+        
     with open(config_path, "r", encoding="utf-8") as f:
         targets = json.load(f)
-
+        
     for config in targets:
         disease = config.get("disease")
-        
         if target_filter and target_filter != disease:
             continue
             
         logging.info(f"Preparing {disease} target ({config.get('pdb_id')})...")
         
         try:
-            pdbqt, grid = prepare_single_target(config["pdb_id"], config["ligand_res_name"], work_dir)
-            
-            # Inject absolute paths back into the runtime dictionary
+            # Pass the active_site safely to the preparator
+            pdbqt, grid = prepare_single_target(
+                pdb_id=config["pdb_id"], 
+                ligand_res_name=config.get("ligand_res_name", ""), 
+                work_dir=work_dir,
+                manual_active_site=config.get("active_site")
+            )
             config["pdbqt"] = str(pdbqt)
             config["grid"] = str(grid)
             logging.info(f"Successfully generated PDBQT at {pdbqt}")
         except Exception as e:
             logging.error(f"Failed to prepare target {disease}: {e}")
-
+            
     index_path = work_dir / "target_index.json"
     index_path.parent.mkdir(parents=True, exist_ok=True)
+    
     with open(index_path, "w", encoding="utf-8") as f:
         json.dump(targets, f, indent=4)
 
