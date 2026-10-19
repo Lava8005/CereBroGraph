@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 PROJECT_ROOT = Path(__file__).parent.resolve()
 
 def is_stale(inputs: List[Path], output: Path) -> bool:
+    """Determine if a pipeline stage needs to re-run based on artifact timestamps."""
     if not output.exists():
         return True
     out_mtime = output.stat().st_mtime
@@ -27,6 +28,7 @@ def is_stale(inputs: List[Path], output: Path) -> bool:
     return False
 
 def run_stage(script_relative_path: str, stage_name: str, force: bool = False):
+    """Execute a python module as an isolated subprocess."""
     script_path = PROJECT_ROOT / script_relative_path
     if not script_path.exists():
         logging.error(f"Missing executable module: {script_path}")
@@ -43,10 +45,13 @@ def run_stage(script_relative_path: str, stage_name: str, force: bool = False):
         sys.exit(e.returncode)
 
 def validate_fda_controls(docking_csv: Path, final_json: Path):
+    """Scientific Validation 2: Ensure FDA controls survived biological filtration."""
     if not docking_csv.exists() or not final_json.exists():
         return
         
     import pandas as pd
+    
+    # 1. Biological Filter Check (Did they pass QED & BBB?)
     try:
         dock_df = pd.read_csv(docking_csv)
         surviving_sources = set(dock_df['source_id'].astype(str).str.upper())
@@ -56,6 +61,7 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
     d_docked = "DONEPEZIL" in surviving_sources
     s_docked = "SAFINAMIDE" in surviving_sources
     
+    # 2. Pareto Skyline Check (Did they make Top K?)
     with open(final_json, "r", encoding="utf-8") as f:
         candidates = json.load(f)
     top_k_sources = [str(c.get("source_id", "")).upper() for c in candidates]
@@ -65,15 +71,18 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
     
     logging.info("-" * 60)
     logging.info("SCIENTIFIC VALIDATION 2 (FDA CONTROL SPIKE):")
+    
     if d_docked and s_docked:
-        logging.info("  [BIOLOGY] Success: Donepezil & Safinamide passed filters.")
+        logging.info("  [BIOLOGY] Success: Donepezil & Safinamide passed BBB & QED filters.")
     else:
-        logging.warning(f"  [BIOLOGY] Failed: Controls dropped! (Donepezil: {d_docked}, Safinamide: {s_docked})")
+        logging.warning(f"  [BIOLOGY] Failed: Controls dropped by biological filters! (Donepezil: {d_docked}, Safinamide: {s_docked})")
         
     if d_topk and s_topk:
         logging.info("  [PARETO] Success: Both controls reached the Top-20 Skyline.")
     elif d_docked or s_docked:
-        logging.info("  [PARETO] Info: Controls mathematically out-competed by Top-20 ZINC molecules.")
+        logging.info(f"  [PARETO] Info: Controls survived biology, but were mathematically out-competed by ZINC molecules in the Top-20.")
+        logging.info(f"           (Donepezil in Top 20: {d_topk}, Safinamide in Top 20: {s_topk})")
+        
     logging.info("-" * 60)
 
 def main():
@@ -103,13 +112,16 @@ def main():
     else:
         logging.info("Skipping Stage: Drug Likeness (Cache hit)")
 
+    # Included GNN weights in the cache watcher
     if args.force or is_stale([filtered_step1, gnn_checkpoint], filtered_step2):
         run_stage("vector_engine/predict_bbb.py", "BBB GNN Inference", args.force)
     else:
         logging.info("Skipping Stage: BBB GNN Inference (Cache hit)")
 
+    # Included Target Config in the cache watcher
     if args.force or is_stale([filtered_step2, config_path], docking_results):
-        if args.force and docking_results.exists():
+        # THE FIX: Always unlink stale results to prevent ghost resumption
+        if docking_results.exists():
             docking_results.unlink()
         run_stage("physics_engine/dock_vina.py", "AutoDock Vina Docking", args.force)
     else:

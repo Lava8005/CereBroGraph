@@ -84,7 +84,7 @@ def run_training(epochs: int = 50, batch_size: int = 256, patience: int = 7, see
     model = dm.to_device(model)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
-    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
     criterion = nn.BCEWithLogitsLoss()
     
     scaler = torch.amp.GradScaler('cuda') if dm.is_cuda else None

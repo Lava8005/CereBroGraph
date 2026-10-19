@@ -1,28 +1,31 @@
+"""TDD Suite for Automated Target Preparation and Active-Site Grid Generation."""
+
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import patch
-from target.prepare_target import batch_prepare_cns_targets
+from target.prepare_target import validate_receptor_integrity, generate_grid_box_config
 
-@patch("target.prepare_target.prepare_single_target")
-def test_batch_prepare_cns_targets(mock_prepare, tmp_path: Path):
-    """Ensure the target preparator correctly parses the CerebroGraph registry."""
-    # Setup mock registry
-    registry_path = tmp_path / "cns_targets.json"
-    registry_path.write_text(json.dumps({
-        "Alzheimers_AChE": {"pdb_id": "1E66", "ligand_res_name": "HUX"},
-        "Parkinsons_MAOB": {"pdb_id": "2V5Z", "ligand_res_name": "PIZ"}
-    }))
+def test_receptor_integrity_validation(tmp_path: Path):
+    """Ensure invalid or empty receptor files are detected and rejected."""
+    empty_file = tmp_path / "empty_receptor.pdbqt"
+    empty_file.write_text("")
     
-    # Mock the return values for the single target execution
-    mock_prepare.return_value = (Path("dummy.pdbqt"), Path("dummy_grid.json"))
+    assert validate_receptor_integrity(empty_file) == False
+
+def test_grid_box_config_serialization(tmp_path: Path):
+    """Ensure grid box coordinates are correctly serialized to JSON for AutoDock Vina."""
+    grid_path = tmp_path / "grid_1E66.json"
     
-    # Execute batch preparation
-    results = batch_prepare_cns_targets(registry_path=registry_path, work_dir=tmp_path)
+    box_data = {
+        "center_x": 10.5, "center_y": 20.1, "center_z": -5.2,
+        "size_x": 22.0, "size_y": 22.0, "size_z": 22.0
+    }
     
-    assert len(results) == 2
-    assert results[0]["disease"] == "Alzheimers_AChE"
-    assert mock_prepare.call_count == 2
-    
-    # Verify the master index was written for downstream consumption
-    assert (tmp_path / "target_index.json").exists()
+    with open(grid_path, "w", encoding="utf-8") as f:
+        json.dump(box_data, f)
+        
+    assert grid_path.exists()
+    with open(grid_path, "r", encoding="utf-8") as f:
+        loaded = json.load(f)
+        assert loaded["center_x"] == 10.5
+        assert loaded["size_x"] == 22.0

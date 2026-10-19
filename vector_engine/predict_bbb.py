@@ -66,11 +66,10 @@ def run_bbb_inference(
     model = BBBGraphModel(num_node_features=27, edge_dim=7, global_dim=2, hidden_dim=64)
     model = dm.to_device(model)
     
-    if model_weights_path and model_weights_path.exists():
-        model.load_state_dict(torch.load(model_weights_path, map_location=dm.device, weights_only=True))
-    else:
-        logging.warning("Inference running with uninitialized weights.")
+    if not model_weights_path or not model_weights_path.exists():
+        raise FileNotFoundError(f"Missing GNN weights at {model_weights_path}. You MUST run train_eval.py first to generate the checkpoint.")
         
+    model.load_state_dict(torch.load(model_weights_path, map_location=dm.device, weights_only=True))
     model.eval()
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     
