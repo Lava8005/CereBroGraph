@@ -18,7 +18,6 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 PROJECT_ROOT = Path(__file__).parent.resolve()
 
 def is_stale(inputs: List[Path], output: Path) -> bool:
-    """Determine if a pipeline stage needs to re-run based on artifact timestamps."""
     if not output.exists():
         return True
     out_mtime = output.stat().st_mtime
@@ -28,7 +27,6 @@ def is_stale(inputs: List[Path], output: Path) -> bool:
     return False
 
 def run_stage(script_relative_path: str, stage_name: str, force: bool = False):
-    """Execute a python module as an isolated subprocess."""
     script_path = PROJECT_ROOT / script_relative_path
     if not script_path.exists():
         logging.error(f"Missing executable module: {script_path}")
@@ -45,13 +43,11 @@ def run_stage(script_relative_path: str, stage_name: str, force: bool = False):
         sys.exit(e.returncode)
 
 def validate_fda_controls(docking_csv: Path, final_json: Path):
-    """Scientific Validation 2: Ensure FDA controls survived biological filtration."""
     if not docking_csv.exists() or not final_json.exists():
         return
         
     import pandas as pd
     
-    # 1. Biological Filter Check (Did they pass QED & BBB?)
     try:
         dock_df = pd.read_csv(docking_csv)
         surviving_sources = set(dock_df['source_id'].astype(str).str.upper())
@@ -61,7 +57,6 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
     d_docked = "DONEPEZIL" in surviving_sources
     s_docked = "SAFINAMIDE" in surviving_sources
     
-    # 2. Pareto Skyline Check (Did they make Top K?)
     with open(final_json, "r", encoding="utf-8") as f:
         candidates = json.load(f)
     top_k_sources = [str(c.get("source_id", "")).upper() for c in candidates]
@@ -89,7 +84,6 @@ def main():
     parser.add_argument("--force", action="store_true", help="Force run all stages, bypassing cache.")
     args = parser.parse_args()
 
-    # Core Pipeline Artifacts
     raw_lib = PROJECT_ROOT / "data" / "library" / "raw" / "zinc_subset.csv"
     curated_lib = PROJECT_ROOT / "data" / "library" / "curated_library.csv"
     filtered_step1 = PROJECT_ROOT / "data" / "physics_engine" / "filtered_step1.csv"
@@ -97,8 +91,8 @@ def main():
     docking_results = PROJECT_ROOT / "data" / "physics_engine" / "docking_results.csv"
     final_json = PROJECT_ROOT / "data" / "ranking" / "final_candidates.json"
     
-    # External Runtime Dependencies & State Markers
-    target_index = PROJECT_ROOT / "data" / "target" / "target_index.json"
+    target_dir = PROJECT_ROOT / "data" / "target"
+    target_index = target_dir / "target_index.json"
     gnn_checkpoint = PROJECT_ROOT / "vector_engine" / "checkpoints" / "best_bbb_gnn.pt"
     docking_marker = PROJECT_ROOT / "data" / "physics_engine" / "docking.marker"
 
@@ -114,23 +108,22 @@ def main():
     else:
         logging.info("Skipping Stage: Drug Likeness (Cache hit)")
 
-    # Included GNN weights in the cache watcher
     if args.force or is_stale([filtered_step1, gnn_checkpoint], filtered_step2):
         run_stage("vector_engine/predict_bbb.py", "BBB GNN Inference", args.force)
     else:
         logging.info("Skipping Stage: BBB GNN Inference (Cache hit)")
 
-    # Included Target Index and Atomic Marker in the cache watcher
-    if args.force or not docking_marker.exists() or is_stale([filtered_step2, target_index], docking_marker):
-        # Obliterate stale or partially written CSVs to prevent Ghost Resumption
+    # THE FIX: Glob physical biological artifacts so manual grid/receptor edits trigger re-docking
+    target_artifacts = list(target_dir.glob("*_target.pdbqt")) + list(target_dir.glob("*_grid.json"))
+    docking_inputs = [filtered_step2, target_index] + target_artifacts
+
+    if args.force or not docking_marker.exists() or is_stale(docking_inputs, docking_marker):
         if docking_results.exists():
             docking_results.unlink()
         if docking_marker.exists():
             docking_marker.unlink()
             
         run_stage("physics_engine/dock_vina.py", "AutoDock Vina Docking", args.force)
-        
-        # Touch marker ONLY after successful subprocess completion
         docking_marker.touch()
     else:
         logging.info("Skipping Stage: AutoDock Vina Docking (Cache hit)")

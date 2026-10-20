@@ -115,7 +115,7 @@ def process_molecule(
     work_dir: Path, 
     output_csv: Path, 
     csv_lock: threading.Lock
-) -> dict:
+) -> Tuple[dict, bool]:
     smiles = row.get("smiles", "")
     target_scores = {}
     
@@ -138,7 +138,6 @@ def process_molecule(
                 os.remove(temp_lig_path)
                 
     row["target_scores"] = json.dumps(target_scores)
-    # THE FIX: Return a boolean flag indicating if ANY score is < 0 (successful binding)
     is_success = any(s < 0 for s in target_scores.values())
     
     if output_csv:
@@ -150,7 +149,7 @@ def process_molecule(
                     writer.writeheader()
                 writer.writerow(row)
                 
-    return is_success
+    return row, is_success
 
 
 def batch_execute_docking(
@@ -160,14 +159,14 @@ def batch_execute_docking(
 ) -> int:
     if not input_csv.exists() or not config_path.exists():
         logging.error("Missing inputs or target configuration. Cannot start physics engine.")
-        sys.exit(1) # THE FIX: Hard exit prevents orchestrator from dropping false success marker
+        sys.exit(1)
 
     vina_exe = "vina" if os.name != "nt" else "vina.exe"
     try:
         subprocess.run([vina_exe, "--version"], capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         logging.error("AutoDock Vina executable not found in system PATH.")
-        sys.exit(1) # THE FIX: Hard exit prevents orchestrator from dropping false success marker
+        sys.exit(1)
 
     with open(config_path, "r", encoding="utf-8") as f:
         targets = json.load(f)
@@ -193,6 +192,7 @@ def batch_execute_docking(
     csv_lock = threading.Lock()
     total_processed = len(completed_codes)
     max_threads = max(1, os.cpu_count() - 2)
+    success_count = 0
 
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         futures = {
@@ -200,16 +200,16 @@ def batch_execute_docking(
             for row in pending_rows
         }
         
-        success_count = 0
         for future in as_completed(futures):
             try:
-                # Count molecules that successfully bound to at least 1 target
-                if future.result() is True:
+                row, is_success = future.result()
+                if is_success:
                     success_count += 1
                 total_processed += 1
             except Exception as e:
                 logging.error(f"Worker thread crashed: {e}")
 
+    # THE FIX: Hard exit if 100% of the batch failed, preventing false orchestrator success
     if total_processed > 0 and success_count == 0:
         logging.error("Catastrophic failure: All docked molecules returned 0.0 scores.")
         logging.error("The Vina grid or receptor is likely invalid. Halting pipeline.")

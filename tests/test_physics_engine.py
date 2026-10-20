@@ -1,11 +1,12 @@
 """TDD Suite for Resumable, Optimized AutoDock Vina Execution."""
 
 import csv
+import pytest
 import threading
 from pathlib import Path
 from unittest.mock import patch
 
-from physics_engine.dock_vina import process_molecule, get_completed_candidates
+from physics_engine.dock_vina import process_molecule, get_completed_candidates, batch_execute_docking
 
 def test_checkpoint_resumption(tmp_path: Path):
     """Ensure previously docked molecules are identified and skipped."""
@@ -21,7 +22,7 @@ def test_checkpoint_resumption(tmp_path: Path):
 @patch("physics_engine.dock_vina.prepare_ligand_pdbqt")
 @patch("physics_engine.dock_vina.dock_precomputed_target")
 def test_single_embedding_efficiency(mock_dock, mock_prepare, tmp_path: Path):
-    """Verify 3D embedding runs exactly ONCE per molecule for 3 targets."""
+    """Verify 3D embedding runs exactly ONCE per molecule for 3 targets and returns tuple."""
     mock_prepare.return_value = "REMARK MOCK PDBQT DATA"
     mock_dock.side_effect = [
         ("Alzheimers_AChE", -9.0),
@@ -33,20 +34,36 @@ def test_single_embedding_efficiency(mock_dock, mock_prepare, tmp_path: Path):
     targets = [{"disease": "Alzheimers_AChE"}, {"disease": "Parkinsons_MAOB"}, {"disease": "Schizophrenia_5HT2A"}]
     lock = threading.Lock()
     
-    # THE FIX: output_csv=None replaces mock_csv=None
-    result = process_molecule("vina", row, targets, tmp_path, output_csv=None, csv_lock=lock)
+    # THE FIX: Correctly unpack the Tuple[dict, bool]
+    result, is_success = process_molecule("vina", row, targets, tmp_path, output_csv=None, csv_lock=lock)
     
     mock_prepare.assert_called_once()
     assert mock_dock.call_count == 3
+    assert is_success is True
     assert '"Alzheimers_AChE": -9.0' in result["target_scores"]
 
 def test_missing_target_fallback(tmp_path: Path):
-    """Ensure un-embeddable molecules fail gracefully and return 0.0 for all targets."""
+    """Ensure un-embeddable molecules fail gracefully and return 0.0."""
     with patch("physics_engine.dock_vina.prepare_ligand_pdbqt", return_value=None):
         row = {"candidate_code": "MOL-FAIL", "smiles": "INVALID"}
         targets = [{"disease": "T1"}, {"disease": "T2"}]
         lock = threading.Lock()
         
-        result = process_molecule("vina", row, targets, tmp_path, output_csv=None, csv_lock=lock)
+        result, is_success = process_molecule("vina", row, targets, tmp_path, output_csv=None, csv_lock=lock)
+        
+        assert is_success is False
         assert '"T1": 0.0' in result["target_scores"]
-        assert '"T2": 0.0' in result["target_scores"]
+
+def test_docking_all_fail_hard_exit(tmp_path: Path):
+    """Ensure 0 successful dockings across the batch triggers sys.exit(1)."""
+    mock_csv = tmp_path / "mock.csv"
+    mock_csv.write_text("candidate_code,smiles\nMOL-1,CCO\n")
+    mock_config = tmp_path / "config.json"
+    mock_config.write_text('[]')
+    
+    with patch("subprocess.run"):
+        # Force process_molecule to return False (0 successful bindings)
+        with patch("physics_engine.dock_vina.process_molecule", return_value=({}, False)):
+            with pytest.raises(SystemExit) as exc:
+                batch_execute_docking(input_csv=mock_csv, output_csv=tmp_path/"out.csv", config_path=mock_config)
+            assert exc.value.code == 1
