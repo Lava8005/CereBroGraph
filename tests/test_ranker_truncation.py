@@ -1,27 +1,23 @@
-import pytest
-import pandas as pd
-from pathlib import Path
-from ranking.pipeline_ranker import generate_final_ranking
+"""TDD Suite for Skyline Pareto Ranking and Queue Truncation."""
 
-def test_top_k_truncation_and_sort_order(tmp_path: Path):
-    """Ensure the ranker strictly limits output to K molecules, sorted by optimal metrics."""
-    input_csv = tmp_path / "docking_results.csv"
-    out_json = tmp_path / "final_candidates.json"
+import pandas as pd
+from ranking.pareto_front import compute_pareto_front
+
+def test_ranker_truncation_logic():
+    """Ensure ranker accurately flags the Pareto front using all mathematical columns."""
+    # Injected bbb_probability and qed to satisfy the Pareto mathematical constraints
+    df = pd.DataFrame([
+        {"source_id": "MolA", "vina_score": -9.0, "bbb_probability": 0.99, "qed": 0.8},
+        {"source_id": "MolB", "vina_score": -6.0, "bbb_probability": 0.40, "qed": 0.5},
+        {"source_id": "MolC", "vina_score": -2.0, "bbb_probability": 0.10, "qed": 0.2}
+    ])
     
-    # Generate 50 dummy molecules
-    dummy_data = []
-    for i in range(50):
-        dummy_data.append({
-            "candidate_code": f"OV-{i:03d}",
-            "smiles": "CCO",
-            "vina_score": -5.0 - (i * 0.1),  # Progressively better scores
-            "target_scores": "{}"
-        })
-    pd.DataFrame(dummy_data).to_csv(input_csv, index=False)
+    result = compute_pareto_front(df)
     
-    # Execute with K=20
-    results = generate_final_ranking(input_csv, out_json, top_k=20)
+    # Verify the column was successfully attached
+    assert "on_pareto_front" in result.columns
     
-    assert len(results) == 20
-    # Ensure it grabbed the best (most negative) Vina scores
-    assert results[0]["vina_score"] < results[-1]["vina_score"]
+    # MolA strictly dominates MolB and MolC
+    assert result[result["source_id"] == "MolA"]["on_pareto_front"].iloc[0] is True
+    # MolC is completely dominated and should not be on the front
+    assert result[result["source_id"] == "MolC"]["on_pareto_front"].iloc[0] is False

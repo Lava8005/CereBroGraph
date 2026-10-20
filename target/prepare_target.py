@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 def validate_receptor_integrity(pdbqt_path: Path) -> bool:
+    """Ensure the generated PDBQT file is non-empty and contains valid atomic coordinates."""
     if not pdbqt_path.exists() or pdbqt_path.stat().st_size == 0:
         return False
     with open(pdbqt_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -51,7 +52,7 @@ def compute_native_centroid(pdb_path: Path, ligand_names: Set[str]) -> Optional[
     if not coords_by_chain:
         return None
         
-    # THE FIX: Pick ONLY the first chain to prevent cross-chain spatial averaging in homodimers
+    # Pick ONLY the first chain to prevent cross-chain spatial averaging in homodimers
     first_chain = list(coords_by_chain.keys())[0]
     coords = coords_by_chain[first_chain]
     
@@ -63,6 +64,7 @@ def compute_native_centroid(pdb_path: Path, ligand_names: Set[str]) -> Optional[
 
 
 def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bool:
+    """Prepare receptor PDBQT and grid configuration for a single CNS target."""
     disease = target_config.get("disease", "Unknown")
     pdb_id = target_config.get("pdb_id", "").upper()
     
@@ -78,7 +80,7 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
             urllib.request.urlretrieve(url, raw_pdb)
         except Exception as e:
             logging.error(f"Failed to download PDB {pdb_id}: {e}")
-            sys.exit(1) 
+            sys.exit(1)
 
     ligands_to_extract = {"HUX", "SAG", "RIS"}
     centroid = compute_native_centroid(raw_pdb, ligands_to_extract)
@@ -91,7 +93,8 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
         cy = float(active_site.get("center_y", 0.0))
         cz = float(active_site.get("center_z", 0.0))
 
-    # ALWAYS generate Grid Box JSON to overwrite any legacy (0,0,0) stale grids
+    # Generate Grid Box JSON, but ONLY write to disk if coordinates changed
+    # to prevent altering the OS mtime and thrashing the docking cache.
     box_data = {
         "center_x": round(cx, 3),
         "center_y": round(cy, 3),
@@ -100,8 +103,21 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
         "size_y": float(target_config.get("active_site", {}).get("size_y", 22.0)),
         "size_z": float(target_config.get("active_site", {}).get("size_z", 22.0))
     }
-    with open(grid_json, "w", encoding="utf-8") as f:
-        json.dump(box_data, f, indent=4)
+    
+    write_grid = True
+    if grid_json.exists():
+        try:
+            with open(grid_json, "r", encoding="utf-8") as f:
+                existing_box = json.load(f)
+            if existing_box == box_data:
+                write_grid = False
+                logging.info(f"Grid box for {pdb_id} unchanged. Preserving cache.")
+        except json.JSONDecodeError:
+            pass # File is corrupted, proceed to overwrite
+
+    if write_grid:
+        with open(grid_json, "w", encoding="utf-8") as f:
+            json.dump(box_data, f, indent=4)
 
     if validate_receptor_integrity(receptor_pdbqt):
         logging.info(f"Target {disease} ({pdb_id}) receptor already prepared. Cache hit.")
@@ -142,6 +158,7 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
 
 
 def prepare_all_targets(config_path: Path = Path("config/cns_targets.json"), output_dir: Path = Path("data/target")):
+    """Batch prepare all CNS targets defined in the project configuration."""
     if not config_path.exists():
         logging.error(f"Missing target configuration file: {config_path}")
         sys.exit(1)
@@ -156,7 +173,9 @@ def prepare_all_targets(config_path: Path = Path("config/cns_targets.json"), out
 
     target_index = output_dir / "target_index.json"
     
-    # THE FIX: Cache Thrashing Prevention
+    # Cache Thrashing Prevention:
+    # Perform deep dictionary equivalence check. Only rewrite if the OS absolute paths 
+    # or the biological coordinates physically changed.
     if target_index.exists():
         try:
             with open(target_index, "r", encoding="utf-8") as f:
