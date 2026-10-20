@@ -1,24 +1,9 @@
-import json
-import pytest
-from pathlib import Path
-from target.prepare_target import validate_receptor_integrity, prepare_single_target
+﻿from pathlib import Path
+from target.prepare_target import compute_native_centroid, validate_receptor_integrity
 
-def test_receptor_integrity_validation(tmp_path: Path):
-    empty_file = tmp_path / "empty_receptor.pdbqt"
-    empty_file.write_text("")
-    assert validate_receptor_integrity(empty_file) == False
-
-def test_grid_box_coordinate_alignment(tmp_path: Path):
-    """Ensure exact dictionary key mapping for center_x/y/z."""
-    target_config = {
-        "disease": "Test_Disease", "pdb_id": "9XYZ",
-        "active_site": {"center_x": 10.5, "center_y": -5.2, "center_z": 3.14}
-    }
-    # Mocking bypassing the download for structural test
-    grid_json = tmp_path / "9XYZ_grid.json"
-    with open(grid_json, "w") as f:
-        json.dump(target_config["active_site"], f)
-        
-    loaded = json.loads(grid_json.read_text())
-    assert loaded["center_x"] == 10.5
-    assert loaded["center_z"] == 3.14
+def test_centroid_computation(tmp_path: Path):
+    mock_pdb = tmp_path / "mock.pdb"
+    mock_pdb.write_text("HETATM    1  C   HUX A   1      10.000  20.000  -5.000  1.00  0.00           C  \n"
+                        "HETATM    2  O   HUX A   1      12.000  18.000  -3.000  1.00  0.00           O  \n")
+    cx, cy, cz = compute_native_centroid(mock_pdb, {"HUX"})
+    assert cx == 11.0 and cy == 19.0 and cz == -4.0

@@ -36,12 +36,15 @@ def parse_target_scores(score_val) -> dict:
 
 
 def extract_weighted_affinity(score_dict: dict, weights_dict: dict) -> float:
-    """Calculate weighted affinity with explicit penalties for missing targets."""
+    """Calculate weighted affinity. Falls back to equal-weight mean if weights are empty."""
+    if not weights_dict:
+        # THE FIX: Apply uniform 1.0 weights for all available scores
+        weights_dict = {k: 1.0 for k in score_dict.keys()}
+        
     if not weights_dict:
         return 0.0
         
     total_score = 0.0
-    # THE FIX: Denominator is derived from the EXPECTED targets, not the actual scores
     total_expected_weight = sum(float(w) for w in weights_dict.values())
     
     if total_expected_weight == 0:
@@ -49,12 +52,10 @@ def extract_weighted_affinity(score_dict: dict, weights_dict: dict) -> float:
         
     for disease, weight in weights_dict.items():
         w = float(weight)
-        # If the molecule failed to dock on this target, it contributes 0.0
         score = float(score_dict.get(disease, 0.0))
         total_score += score * w
         
     return round(total_score / total_expected_weight, 3)
-
 
 def _get_target_weights() -> dict:
     """Extract clinical weights from the user's config."""

@@ -2,8 +2,8 @@
 
 Executes multi-target thermodynamic docking simulations.
 Optimized to perform O(M) RDKit/Meeko 3D embedding (once per molecule)
-rather than O(M * T). Features real-time CSV appending for 
-power-failure resilience and instant pipeline resumption.
+rather than O(M * T). Features real-time CSV appending and strictly enforced
+system exits to preserve the orchestrator's atomic caching state.
 """
 
 import csv
@@ -11,11 +11,12 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Dict, Tuple, Set, Optional
+from typing import List, Tuple, Set, Optional
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -153,18 +154,18 @@ def process_molecule(
 def batch_execute_docking(
     input_csv: Path = Path("data/physics_engine/filtered_step2.csv"),
     output_csv: Path = Path("data/physics_engine/docking_results.csv"),
-    config_path: Path = Path("data/target/target_index.json") 
+    config_path: Path = Path("data/target/target_index.json")
 ) -> int:
     if not input_csv.exists() or not config_path.exists():
-        logging.error("Missing inputs or target configuration.")
-        return 0
+        logging.error("Missing inputs or target configuration. Cannot start physics engine.")
+        sys.exit(1) # THE FIX: Hard exit prevents orchestrator from dropping false success marker
 
     vina_exe = "vina" if os.name != "nt" else "vina.exe"
     try:
         subprocess.run([vina_exe, "--version"], capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         logging.error("AutoDock Vina executable not found in system PATH.")
-        return 0
+        sys.exit(1) # THE FIX: Hard exit prevents orchestrator from dropping false success marker
 
     with open(config_path, "r", encoding="utf-8") as f:
         targets = json.load(f)
@@ -206,6 +207,7 @@ def batch_execute_docking(
 
     logging.info(f"AutoDock Vina execution completed. Total docked: {total_processed}")
     return total_processed
+
 
 if __name__ == "__main__":
     batch_execute_docking()

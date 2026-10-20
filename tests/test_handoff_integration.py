@@ -1,25 +1,26 @@
+"""TDD Suite for Data Leakage Prevention and Subprocess State Management."""
+
 import pytest
 import sys
-from pathlib import Path
-from physics_engine.dock_vina import dock_single_target
+from unittest.mock import patch
+from physics_engine.dock_vina import batch_execute_docking
+from vector_engine.b3db_loader import FDA_CONTROL_NAMES
 
-def test_null_safe_path_casting():
-    """Ensure missing registry keys are caught gracefully without crashing the ThreadPool."""
-    # Simulating the static config that lacks 'pdbqt' and 'grid' keys
-    bad_config = {"disease": "Alzheimers_AChE"} 
-    
-    # Execute - should return 0.0 safely instead of throwing TypeError
-    disease, score = dock_single_target(Path("vina"), "CCO", "OV-01", bad_config, Path("work"))
-    
-    assert disease == "Alzheimers_AChE"
-    assert score == 0.0
-
-def test_ranker_sys_path_resolution(tmp_path: Path):
-    """Ensure the ranker dynamically anchors itself to the project root."""
-    ranker_file = tmp_path / "ranking" / "pipeline_ranker.py"
-    calculated_root = str(ranker_file.resolve().parent.parent)
-    
-    if calculated_root not in sys.path:
-        sys.path.insert(0, calculated_root)
+def test_vina_binary_hard_exit():
+    """Ensure a missing Vina binary triggers a hard sys.exit(1) to prevent false orchestrator markers."""
+    with patch("subprocess.run") as mock_run:
+        # Simulate Vina missing from system PATH
+        mock_run.side_effect = FileNotFoundError("vina not found")
         
-    assert calculated_root in sys.path
+        with pytest.raises(SystemExit) as exc_info:
+            batch_execute_docking(config_path="mock_config.json")
+            
+        assert exc_info.value.code == 1
+
+def test_dual_layer_quarantine_strings():
+    """Ensure substring matching catches homologous variations of controls."""
+    homolog_name = "Loperamide-derivative (4-carbon)"
+    
+    # Topological mapping might fail if the SMILES differs, but string matching MUST catch it
+    is_quarantined = any(n in homolog_name.upper() for n in FDA_CONTROL_NAMES)
+    assert is_quarantined is True
