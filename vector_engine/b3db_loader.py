@@ -48,7 +48,8 @@ def load_b3db_dataset(csv_path="data/training/B3DB_classification.tsv", split_mo
     
     for _, row in df.iterrows():
         smi = row.get("SMILES", "")
-        compound_name = str(row.get("Compound Name", row.get("IUPAC", ""))).upper()
+        # THE FIX: Corrected column names to match actual B3DB TSV headers
+        compound_name = str(row.get("compound_name", row.get("IUPAC_name", ""))).upper()
         
         mol = Chem.MolFromSmiles(smi)
         if not mol:
@@ -56,7 +57,7 @@ def load_b3db_dataset(csv_path="data/training/B3DB_classification.tsv", split_mo
             
         canonical_smi = Chem.MolToSmiles(mol, canonical=True)
         
-        # THE FIX: Dual-Layer Quarantine ensures 100% Validation 2 integrity
+        # Dual-Layer Quarantine
         if canonical_smi in FDA_CONTROL_SMILES or any(n in compound_name for n in FDA_CONTROL_NAMES):
             continue
 

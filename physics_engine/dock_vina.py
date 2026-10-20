@@ -138,6 +138,8 @@ def process_molecule(
                 os.remove(temp_lig_path)
                 
     row["target_scores"] = json.dumps(target_scores)
+    # THE FIX: Return a boolean flag indicating if ANY score is < 0 (successful binding)
+    is_success = any(s < 0 for s in target_scores.values())
     
     if output_csv:
         with csv_lock:
@@ -148,7 +150,7 @@ def process_molecule(
                     writer.writeheader()
                 writer.writerow(row)
                 
-    return row
+    return is_success
 
 
 def batch_execute_docking(
@@ -198,14 +200,22 @@ def batch_execute_docking(
             for row in pending_rows
         }
         
+        success_count = 0
         for future in as_completed(futures):
             try:
-                future.result()
+                # Count molecules that successfully bound to at least 1 target
+                if future.result() is True:
+                    success_count += 1
                 total_processed += 1
             except Exception as e:
                 logging.error(f"Worker thread crashed: {e}")
 
-    logging.info(f"AutoDock Vina execution completed. Total docked: {total_processed}")
+    if total_processed > 0 and success_count == 0:
+        logging.error("Catastrophic failure: All docked molecules returned 0.0 scores.")
+        logging.error("The Vina grid or receptor is likely invalid. Halting pipeline.")
+        sys.exit(1)
+
+    logging.info(f"AutoDock Vina execution completed. Total docked: {total_processed} (Successful: {success_count})")
     return total_processed
 
 
