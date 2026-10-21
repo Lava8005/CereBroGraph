@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 from database.upload_results import upload_final_candidates
 
 def test_database_upload_payload_and_upsert(tmp_path: Path):
-    """Verify Supabase client is called with exact 10-column schema and idempotent upsert."""
+    """Verify Supabase client is called with EXACT 10-column schema and idempotent upsert."""
     final_json = tmp_path / "final_candidates.json"
     
     # 1. Generate pipeline output mimicking our Ranker
@@ -49,3 +49,21 @@ def test_database_upload_payload_and_upsert(tmp_path: Path):
         assert payload[0]["candidate_code"] == "MOL-TEST-123"
         assert payload[0]["target_scores"] == {"Alzheimers_AChE": -9.5}
         assert kwargs.get("on_conflict") == "candidate_code"
+        
+        # THE FIX: Strict 10-column schema enforcement
+        expected_keys = {
+            "candidate_code", 
+            "source_id", 
+            "smiles", 
+            "vina_score", 
+            "bbb_probability", 
+            "qed", 
+            "lipinski_violations", 
+            "composite_score", 
+            "on_pareto_front", 
+            "target_scores"
+        }
+        actual_keys = set(payload[0].keys())
+        
+        # This will fail loudly if ANY key is missing or added
+        assert actual_keys == expected_keys, f"Schema mismatch! Missing/Extra keys: {actual_keys.symmetric_difference(expected_keys)}"
