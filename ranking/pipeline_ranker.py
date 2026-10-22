@@ -81,7 +81,7 @@ def generate_final_ranking(
         df["mean_vina"] = df[target_cols].apply(
             lambda row: 99.0 if 99.0 in row.values else row.mean(), axis=1
         )
-        df = df.sort_values(by=["pareto_rank", "mean_vina"], ascending=[True, True])
+        df = df.sort_values(by=["pareto_rank", "crowding_distance"], ascending=[True, False])
         
     df = df.head(top_k)
     

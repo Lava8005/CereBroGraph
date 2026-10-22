@@ -40,7 +40,7 @@ def run_bbb_inference(
     model_weights_path: Optional[Path] = Path("vector_engine/checkpoints/best_bbb_gnn.pt"),
     batch_size: int = 4096,
     bbb_threshold: float = 0.35,
-    max_docking_candidates: int = 2000
+    max_docking_candidates: int = 1000000 # THE FIX: Uncapped for true ablation studies
 ) -> int:
     """High-throughput inference with parallel featurization and FP32 sigmoid cast."""
     if not input_csv.exists():

@@ -16,14 +16,25 @@ from rdkit import Chem
 from vector_engine.b3db_to_graph import smiles_to_graph
 
 # 1. Topological Quarantine (Exact Structure Matching)
-FDA_CONTROL_SMILES = {
+
+import logging
+
+_RAW_FDA = [
     "COc1cc2c(cc1OC)C(=O)C(CC1CCN(Cc3ccccc3)CC1)C2", # Donepezil
-    "CC(NCc1ccc(OCc2cccc(F)c2)cc1)C(N)=O",          # THE FIX: Safinamide (Corrected ortho-fluoro ether)
+    "CC(NCc1ccc(OCc2cccc(F)c2)cc1)C(N)=O",          # Safinamide
     "CN(C)C(=O)C(CCN1CCC(O)(c2ccc(Cl)cc2)CC1)(c1ccccc1)c1ccccc1", # Loperamide
     "Cc1nc2n(c(=O)c1CCN1CCC(c3noc4cc(F)ccc34)CC1)CCCC2", # Risperidone
-    "CC(C)C1CC(C)CC(C1)N(Cc1ccc(F)cc1)C(=O)N1CCN(Cc2ccc(OCC(F)(F)F)cc2)CC1" # THE FIX: Pimavanserin
-}
+    "CC(C)COc1ccc(CNC(=O)N(Cc2ccc(F)cc2)C2CCN(C)CC2)cc1" # Pimavanserin
+]
 
+# Mathematically guarantee topology parity via RDKit
+FDA_CONTROL_SMILES = set()
+for s in _RAW_FDA:
+    mol = Chem.MolFromSmiles(s)
+    if mol:
+        FDA_CONTROL_SMILES.add(Chem.MolToSmiles(mol, canonical=True))
+    else:
+        logging.error(f"Failed to canonicalize FDA control: {s}")
 # 2. Lexicographical Quarantine (Homolog & Derivative Catch-All)
 FDA_CONTROL_NAMES = {"DONEPEZIL", "SAFINAMIDE", "LOPERAMIDE", "RISPERIDONE", "PIMAVANSERIN"}
 

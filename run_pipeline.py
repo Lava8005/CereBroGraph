@@ -140,6 +140,10 @@ def main():
         logging.info("Skipping Stage: Skyline Pareto Ranking (Cache hit)")
 
     validate_fda_controls(docking_results, final_json)
+    
+    # THE FIX: Generate empirical metrics for publication
+    run_stage("analysis/generate_paper_metrics.py", "Generating Paper Metrics", args.force)
+    
     run_stage("database/upload_results.py", "Database Sync", args.force)
     logging.info("  Full pipeline execution completed successfully.")
 
