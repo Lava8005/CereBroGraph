@@ -1,55 +1,38 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import App from './App';
+import { supabase } from './supabase';
 
-// Mock Supabase client
-vi.mock('./supabase', () => ({
-  supabase: {
-    from: () => ({
-      select: () => ({
-        order: () => ({
-          limit: vi.fn().mockResolvedValue({
-            data: [
-              {
-                id: '1',
-                candidate_code: 'OV-000001',
-                composite_score: 0.85,
-                bbb_probability: 0.92,
-                qed: 0.75,
-                target_scores: { "Alzheimers_AChE": -11.2, "Parkinsons_MAOB": -9.8 }
-              },
-              {
-                id: '2',
-                candidate_code: 'OV-000002',
-                target_scores: {}
-              }
-            ],
-            error: null
-          })
-        })
+// Mock Supabase to prevent network calls during CI/CD
+jest.mock('./supabase');
+
+test('renders Pareto skyline candidates from Supabase', async () => {
+  supabase.from.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      order: jest.fn().mockResolvedValue({
+        data: [
+          {
+            candidate_code: 'MOL-TEST-123',
+            source_id: 'DONEPEZIL',
+            vina_score: -9.5,
+            bbb_probability: 0.98,
+            qed: 0.88,
+            on_pareto_front: true
+          }
+        ],
+        error: null
       })
     })
-  }
-}));
-
-describe('App Dashboard Integration', () => {
-  it('renders polypharmacology data upon candidate selection', async () => {
-    render(<App />);
-    
-    // Wait for mock data to populate and click the first row
-    const firstRow = await screen.findByText('OV-000001');
-    fireEvent.click(firstRow);
-    
-    // Verify JSONB parsing and display
-    expect(screen.getByText('Alzheimers AChE')).toBeInTheDocument();
-    expect(screen.getByText('-11.20')).toBeInTheDocument();
   });
 
-  it('handles empty target_scores gracefully', async () => {
-    render(<App />);
-    const secondRow = await screen.findByText('OV-000002');
-    fireEvent.click(secondRow);
-    
-    expect(screen.getByText('No polypharmacology data available.')).toBeInTheDocument();
+  render(<App />);
+  
+  // Verify Dashboard Header
+  expect(screen.getByText(/Polypharmacology Skyline/i)).toBeInTheDocument();
+  
+  // Verify Payload Data Integration
+  await waitFor(() => {
+    expect(screen.getByText('MOL-TEST-123')).toBeInTheDocument();
+    expect(screen.getByText('DONEPEZIL')).toBeInTheDocument();
+    expect(screen.getByText('-9.5')).toBeInTheDocument();
   });
 });
