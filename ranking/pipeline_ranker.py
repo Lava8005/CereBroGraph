@@ -51,21 +51,28 @@ def generate_final_ranking(
     if df.empty:
         return _write_empty_json(output_json)
 
-    # Expand multi-target scores into separate columns for true Pareto analysis
+    import numpy as np
+
     target_cols = []
     if "target_scores" in df.columns:
         df["target_scores"] = df["target_scores"].apply(parse_target_scores)
-        all_targets = set()
-        for ts in df["target_scores"]:
-            all_targets.update(ts.keys())
+        all_targets = set(k for ts in df["target_scores"] for k in ts.keys())
             
         for t in all_targets:
             col_name = f"vina_{t}"
             target_cols.append(col_name)
-            # Penalty: If docking failed (0.0) or affinity is positive, assign +99.0 to ensure domination
-            df[col_name] = df["target_scores"].apply(lambda s: float(s.get(t, 99.0)) if float(s.get(t, 0.0)) < 0 else 99.0)
+            # Use NaN for failed/missing dockings
+            df[col_name] = df["target_scores"].apply(
+                lambda s: float(s.get(t)) if s.get(t) is not None and float(s.get(t)) < 0 else np.nan
+            )
+            
+    # STRICT POLYPHARMACOLOGY: Drop any candidate that failed to bind to all required targets
+    initial_len = len(df)
+    df = df.dropna(subset=target_cols).copy()
+    if len(df) < initial_len:
+        logging.info(f"Dropped {initial_len - len(df)} candidates due to failed/missing dockings.")
 
-    # Execute NSGA-II non-dominated sorting
+    # Execute NSGA-II non-dominated sorting on the clean dataset
     minimize_axes = target_cols if target_cols else ["vina_score"]
     df = compute_pareto_fronts(df, minimize_cols=minimize_axes, maximize_cols=["bbb_probability", "qed"])
     
