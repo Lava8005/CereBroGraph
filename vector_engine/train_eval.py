@@ -72,13 +72,14 @@ def run_training(epochs: int = 50, batch_size: int = 256, patience: int = 7, see
     dm = default_device_manager
     logging.info(f"Initializing GINE training on device: {dm.device.type} (seed={seed})")
     
-    train_dataset, val_dataset = load_b3db_dataset(split_mode="scaffold", seed=seed)
-    if not train_dataset or not val_dataset:
+    train_dataset, val_dataset, test_dataset = load_b3db_dataset(split_mode="scaffold", seed=seed)
+    if not train_dataset or not val_dataset or not test_dataset:
         logging.error("Dataset loading failed. Aborting training.")
         return
         
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
     model = BBBGraphModel(num_node_features=27, edge_dim=7, global_dim=2, hidden_dim=64)
     model = dm.to_device(model)
@@ -151,7 +152,14 @@ def run_training(epochs: int = 50, batch_size: int = 256, patience: int = 7, see
                 
         dm.empty_cache()
                 
-    logging.info(f"Training complete. Best Val ROC-AUC: {best_val_auc:.4f}.")
+    logging.info("Training complete. Loading best weights for Test Set evaluation...")
+    model.load_state_dict(torch.load(best_model_path, map_location=dm.device, weights_only=True))
+    test_metrics, test_loss = evaluate_model(model, test_loader, criterion, dm)
+    
+    logging.info(f"Held-Out TEST SET | Loss: {test_loss:.4f} | ROC-AUC: {test_metrics['roc_auc']:.4f} | F1: {test_metrics['f1']:.4f}")
+    
+    best_metrics['test_roc_auc'] = test_metrics['roc_auc']
+    best_metrics['test_f1'] = test_metrics['f1']
     
     metrics_path = Path("data/vector_engine/bbb_eval_metrics.json")
     metrics_path.parent.mkdir(parents=True, exist_ok=True)

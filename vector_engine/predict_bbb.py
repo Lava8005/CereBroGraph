@@ -11,7 +11,7 @@ import sys
 import os
 from itertools import islice
 from pathlib import Path
-from typing import Optional, Set
+from typing import Optional
 from concurrent.futures import ProcessPoolExecutor
 
 project_root = str(Path(__file__).resolve().parent.parent)
@@ -27,22 +27,6 @@ from vector_engine.device_manager import default_device_manager
 from vector_engine.gnn_model import BBBGraphModel
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-_KNOWN_PGP_EFFLUX_NEGATIVE_SMILES = [
-    "CN(C)C(=O)C(CCN1CCC(O)(c2ccc(Cl)cc2)CC1)(c1ccccc1)c1ccccc1",
-    "CN(C)C(=O)C(CCCN1CCC(O)(c2ccc(Cl)cc2)CC1)(c1ccccc1)c1ccccc1",
-]
-
-def _get_pgp_efflux_set() -> Set[str]:
-    efflux_set: Set[str] = set()
-    for smi in _KNOWN_PGP_EFFLUX_NEGATIVE_SMILES:
-        from rdkit import Chem
-        mol = Chem.MolFromSmiles(smi)
-        if mol is not None:
-            efflux_set.add(Chem.MolToSmiles(mol, canonical=True))
-    return efflux_set
-
-PGP_EFFLUX_NEGATIVES: Set[str] = _get_pgp_efflux_set()
 
 
 def _process_graph_chunk(smiles_list):
@@ -124,18 +108,14 @@ def run_bbb_inference(
                                 edge_attr=batch_data.edge_attr,
                                 global_features=batch_data.global_features
                             )
-                        # Cast logits to FP32 before sigmoid to prevent rank ties
                         probabilities = torch.sigmoid(logits.float()).view(-1).cpu().tolist()
 
-                    for row_idx, prob, graph_obj in zip(valid_indices, probabilities, valid_graphs):
+                    for row_idx, prob in zip(valid_indices, probabilities):
                         row_ref = batch_rows[row_idx]
-                        source_id = str(row_ref.get("source_id", "")).upper()
                         
-                        if graph_obj.smiles in PGP_EFFLUX_NEGATIVES or source_id == "LOPERAMIDE":
-                            final_prob = min(float(prob), 0.1200)
-                        else:
-                            final_prob = float(prob)
-                        row_ref["bbb_probability"] = f"{final_prob:.5f}"
+                        # THE FIX: Removed circular/hardcoded override for Loperamide and PGP efflux sets
+                        # The GNN prediction is now used unmodified for true scientific validity.
+                        row_ref["bbb_probability"] = f"{float(prob):.5f}"
 
                 rows_to_write = [
                     r for r in batch_rows 
@@ -151,12 +131,12 @@ def run_bbb_inference(
     df = pd.read_csv(output_csv)
     if not df.empty and len(df) > max_docking_candidates:
         logging.info(f"Truncating {len(df)} candidates down to Top {max_docking_candidates} for Vina...")
-        df["is_control"] = df["source_id"].isin(["DONEPEZIL", "SAFINAMIDE"])
         df["priority_score"] = df["bbb_probability"].astype(float) * df["qed"].astype(float)
         
-        df = df.sort_values(by=["is_control", "priority_score"], ascending=[False, False])
+        # THE FIX: Pure mathematical sorting. Controls are no longer falsely forced to the top.
+        df = df.sort_values(by=["priority_score"], ascending=[False])
         df = df.head(max_docking_candidates)
-        df.drop(columns=["priority_score", "is_control"]).to_csv(output_csv, index=False)
+        df.drop(columns=["priority_score"]).to_csv(output_csv, index=False)
         total_retained = max_docking_candidates
     else:
         total_retained = len(df)

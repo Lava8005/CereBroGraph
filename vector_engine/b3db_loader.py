@@ -1,7 +1,7 @@
 """B3DB Dataset Loader & FDA Control Quarantine.
 
 Parses the Blood-Brain Barrier dataset, extracts mathematically rigorous labels
-(logBB >= -0.1), and enforces a deterministic Bemis-Murcko scaffold split.
+and enforces a deterministic Bemis-Murcko scaffold split.
 Implements a dual-layer quarantine (Topology + Lexicography) to mathematically 
 guarantee FDA controls never leak into the training split.
 """
@@ -48,7 +48,7 @@ def load_b3db_dataset(csv_path="data/training/B3DB_classification.tsv", split_mo
     
     for _, row in df.iterrows():
         smi = row.get("SMILES", "")
-        # THE FIX: Corrected column names to match actual B3DB TSV headers
+        # Corrected column names to match actual B3DB TSV headers
         compound_name = str(row.get("compound_name", row.get("IUPAC_name", ""))).upper()
         
         mol = Chem.MolFromSmiles(smi)
@@ -57,34 +57,42 @@ def load_b3db_dataset(csv_path="data/training/B3DB_classification.tsv", split_mo
             
         canonical_smi = Chem.MolToSmiles(mol, canonical=True)
         
-        # Dual-Layer Quarantine
+        # Dual-Layer Quarantine ensures 100% Validation 2 integrity
         if canonical_smi in FDA_CONTROL_SMILES or any(n in compound_name for n in FDA_CONTROL_NAMES):
             continue
 
-        # THE FIX: Restored original scientific boundary (-0.1) for logBB
-        if "logBB" in row and pd.notna(row["logBB"]):
-            label = 1 if float(row["logBB"]) >= -0.1 else 0
-        else:
-            label = 1 if row.get("BBB+/BBB-", "BBB-") == "BBB+" else 0
+        # Benchmark compliance: Using official B3DB labels instead of custom logBB thresholds.
+        label = 1 if row.get("BBB+/BBB-", "BBB-") == "BBB+" else 0
             
         graph = smiles_to_graph(smi, is_inference=False)
         if graph is not None:
             graph.y = torch.tensor([label], dtype=torch.long)
             
-            # THE FIX: Preserve acyclic molecules instead of silently dropping them
+            # Preserve acyclic molecules instead of silently dropping them
             scaffold = getattr(graph, "scaffold", "")
             scaffolds.append(scaffold if scaffold else "ACYCLIC")
             graphs.append(graph)
             
     if not graphs:
-        return None, None
+        return None, None, None
         
     df_scaffolds = pd.DataFrame({"scaffold": scaffolds})
+    
+    # First Split: 80% Train, 20% Temp
     gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=seed)
-    train_idx, val_idx = next(gss.split(df_scaffolds, groups=df_scaffolds["scaffold"]))
+    train_idx, temp_idx = next(gss.split(df_scaffolds, groups=df_scaffolds["scaffold"]))
+    
+    # Second Split: Divide Temp evenly into 10% Val and 10% Test
+    temp_scaffolds = df_scaffolds.iloc[temp_idx].reset_index(drop=True)
+    gss_test = GroupShuffleSplit(n_splits=1, test_size=0.5, random_state=seed)
+    val_rel_idx, test_rel_idx = next(gss_test.split(temp_scaffolds, groups=temp_scaffolds["scaffold"]))
+    
+    val_idx = temp_idx[val_rel_idx]
+    test_idx = temp_idx[test_rel_idx]
     
     train_dataset = B3DBDataset([graphs[i] for i in train_idx])
     val_dataset = B3DBDataset([graphs[i] for i in val_idx])
+    test_dataset = B3DBDataset([graphs[i] for i in test_idx])
     
-    logging.info(f"Loaded {len(graphs)} graphs. Train: {len(train_dataset)}, Val: {len(val_dataset)}.")
-    return train_dataset, val_dataset
+    logging.info(f"Loaded {len(graphs)} graphs. Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}.")
+    return train_dataset, val_dataset, test_dataset

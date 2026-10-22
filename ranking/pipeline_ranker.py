@@ -12,13 +12,7 @@ if project_root not in sys.path:
 import pandas as pd
 from pandas.errors import EmptyDataError
 
-try:
-    from ranking.multi_objective import compute_composite_scores
-    from ranking.pareto_front import compute_pareto_front
-except ImportError:
-    logging.warning("Optimization modules missing. Bypassing advanced ranking.")
-    def compute_composite_scores(df): return df
-    def compute_pareto_front(df): return df
+from ranking.pareto_front import compute_pareto_fronts
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -28,45 +22,10 @@ def parse_target_scores(score_val) -> dict:
     if isinstance(score_val, dict):
         return score_val
     try:
-        # Replace single quotes with double quotes for strict JSON compliance
         clean_str = str(score_val).replace("'", '"')
         return json.loads(clean_str) if pd.notna(score_val) else {}
     except (json.JSONDecodeError, ValueError):
         return {}
-
-
-def extract_weighted_affinity(score_dict: dict, weights_dict: dict) -> float:
-    """Calculate weighted affinity. Falls back to equal-weight mean if weights are empty."""
-    if not weights_dict:
-        # THE FIX: Apply uniform 1.0 weights for all available scores
-        weights_dict = {k: 1.0 for k in score_dict.keys()}
-        
-    if not weights_dict:
-        return 0.0
-        
-    total_score = 0.0
-    total_expected_weight = sum(float(w) for w in weights_dict.values())
-    
-    if total_expected_weight == 0:
-        return 0.0
-        
-    for disease, weight in weights_dict.items():
-        w = float(weight)
-        score = float(score_dict.get(disease, 0.0))
-        total_score += score * w
-        
-    return round(total_score / total_expected_weight, 3)
-
-def _get_target_weights() -> dict:
-    """Extract clinical weights from the user's config."""
-    config_path = Path(project_root) / "config" / "cns_targets.json"
-    weights = {}
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            targets = json.load(f)
-            for t in targets:
-                weights[t.get("disease")] = t.get("weight", 1.0)
-    return weights
 
 
 def _write_empty_json(output_json: Path) -> list:
@@ -92,22 +51,36 @@ def generate_final_ranking(
     if df.empty:
         return _write_empty_json(output_json)
 
-    target_weights = _get_target_weights()
-
+    # Expand multi-target scores into separate columns for true Pareto analysis
+    target_cols = []
     if "target_scores" in df.columns:
         df["target_scores"] = df["target_scores"].apply(parse_target_scores)
-        df["vina_score"] = df["target_scores"].apply(lambda s: extract_weighted_affinity(s, target_weights))
+        all_targets = set()
+        for ts in df["target_scores"]:
+            all_targets.update(ts.keys())
+            
+        for t in all_targets:
+            col_name = f"vina_{t}"
+            target_cols.append(col_name)
+            # Penalty: If docking failed (0.0) or affinity is positive, assign +99.0 to ensure domination
+            df[col_name] = df["target_scores"].apply(lambda s: float(s.get(t, 99.0)) if float(s.get(t, 0.0)) < 0 else 99.0)
 
-    df = compute_composite_scores(df)
-    df = compute_pareto_front(df)
+    # Execute NSGA-II non-dominated sorting
+    minimize_axes = target_cols if target_cols else ["vina_score"]
+    df = compute_pareto_fronts(df, minimize_cols=minimize_axes, maximize_cols=["bbb_probability", "qed"])
     
-    if "composite_score" in df.columns and "on_pareto_front" in df.columns:
-        df = df.sort_values(
-            by=["on_pareto_front", "composite_score", "vina_score"], 
-            ascending=[False, False, True] 
-        )
-
+    # Truncate queue strictly by Pareto rank, breaking ties by mean Vina affinity
+    if target_cols:
+        df["mean_vina"] = df[target_cols].mean(axis=1)
+        df = df.sort_values(by=["pareto_rank", "mean_vina"], ascending=[True, True])
+        
     df = df.head(top_k)
+    
+    # Backwards compatibility / UI fallback
+    df["composite_score"] = 1.0 / df["pareto_rank"]
+    if "vina_score" not in df.columns and "mean_vina" in df.columns:
+        df["vina_score"] = df["mean_vina"]
+    
     candidates = df.to_dict(orient="records")
     
     output_json.parent.mkdir(parents=True, exist_ok=True)
