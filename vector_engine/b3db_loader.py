@@ -17,11 +17,11 @@ from vector_engine.b3db_to_graph import smiles_to_graph
 
 # 1. Topological Quarantine (Exact Structure Matching)
 FDA_CONTROL_SMILES = {
-    Chem.MolToSmiles(Chem.MolFromSmiles("COc1cc2c(cc1OC)C(=O)C(CC1CCN(Cc3ccccc3)CC1)C2"), canonical=True), # Donepezil
-    Chem.MolToSmiles(Chem.MolFromSmiles("CC(Nc1ccc(OCc2ccccc2F)cc1)C(N)=O"), canonical=True), # Safinamide
-    Chem.MolToSmiles(Chem.MolFromSmiles("CN(C)C(=O)C(CCN1CCC(O)(c2ccc(Cl)cc2)CC1)(c1ccccc1)c1ccccc1"), canonical=True), # Loperamide
-    Chem.MolToSmiles(Chem.MolFromSmiles("Cc1nc2n(c(=O)c1CCN1CCC(c3noc4cc(F)ccc34)CC1)CCCC2"), canonical=True), # Risperidone
-    Chem.MolToSmiles(Chem.MolFromSmiles("CC(C)C1CC(C)CC(C1)N(Cc1ccc(F)cc1)C(=O)N1CCN(Cc2ccc(OCC(F)(F)F)cc2)CC1"), canonical=True) # Pimavanserin
+    "COc1cc2c(cc1OC)C(=O)C(CC1CCN(Cc3ccccc3)CC1)C2", # Donepezil
+    "CC(NCc1ccc(OCc2cccc(F)c2)cc1)C(N)=O",          # THE FIX: Safinamide (Corrected ortho-fluoro ether)
+    "CN(C)C(=O)C(CCN1CCC(O)(c2ccc(Cl)cc2)CC1)(c1ccccc1)c1ccccc1", # Loperamide
+    "Cc1nc2n(c(=O)c1CCN1CCC(c3noc4cc(F)ccc34)CC1)CCCC2", # Risperidone
+    "CC(C)C1CC(C)CC(C1)N(Cc1ccc(F)cc1)C(=O)N1CCN(Cc2ccc(OCC(F)(F)F)cc2)CC1" # THE FIX: Pimavanserin
 }
 
 # 2. Lexicographical Quarantine (Homolog & Derivative Catch-All)

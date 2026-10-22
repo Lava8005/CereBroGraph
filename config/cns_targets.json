@@ -1,38 +1,32 @@
 [
     {
         "disease": "Alzheimers_AChE",
+        "pdb_id": "4EY7",
         "weight": 1.0,
-        "pdb_id": "1E66",
-        "ligand_res_name": "HUX",
-        "pdbqt": "data/target/1E66_target.pdbqt",
-        "grid": "data/target/1E66_grid.json",
         "active_site": {
-            "center_x": 4.679, "center_y": 64.974, "center_z": 54.341,
-            "size_x": 20.0, "size_y": 20.0, "size_z": 20.0
+            "size_x": 22.0,
+            "size_y": 22.0,
+            "size_z": 22.0
         }
     },
     {
         "disease": "Parkinsons_MAOB",
-        "weight": 1.0,
         "pdb_id": "2V5Z",
-        "ligand_res_name": "SAG",
-        "pdbqt": "data/target/2V5Z_target.pdbqt",
-        "grid": "data/target/2V5Z_grid.json",
+        "weight": 1.0,
         "active_site": {
-            "center_x": 17.512, "center_y": 15.234, "center_z": -3.456,
-            "size_x": 20.0, "size_y": 20.0, "size_z": 20.0
+            "size_x": 22.0,
+            "size_y": 22.0,
+            "size_z": 22.0
         }
     },
     {
         "disease": "Schizophrenia_5HT2A",
-        "weight": 1.0,
         "pdb_id": "6A93",
-        "ligand_res_name": "RIS",
-        "pdbqt": "data/target/6A93_target.pdbqt",
-        "grid": "data/target/6A93_grid.json",
+        "weight": 1.0,
         "active_site": {
-            "center_x": 14.821, "center_y": -1.255, "center_z": 22.401,
-            "size_x": 20.0, "size_y": 20.0, "size_z": 20.0
+            "size_x": 22.0,
+            "size_y": 22.0,
+            "size_z": 22.0
         }
     }
 ]

@@ -82,7 +82,7 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
             logging.error(f"Failed to download PDB {pdb_id}: {e}")
             sys.exit(1)
 
-    ligands_to_extract = {"HUX", "SAG", "RIS"}
+    ligands_to_extract = {"E20", "SAG", "RIS"}
     centroid = compute_native_centroid(raw_pdb, ligands_to_extract)
     
     if centroid:

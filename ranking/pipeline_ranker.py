@@ -71,7 +71,9 @@ def generate_final_ranking(
     
     # Truncate queue strictly by Pareto rank, breaking ties by mean Vina affinity
     if target_cols:
-        df["mean_vina"] = df[target_cols].mean(axis=1)
+        df["mean_vina"] = df[target_cols].apply(
+            lambda row: 99.0 if 99.0 in row.values else row.mean(), axis=1
+        )
         df = df.sort_values(by=["pareto_rank", "mean_vina"], ascending=[True, True])
         
     df = df.head(top_k)

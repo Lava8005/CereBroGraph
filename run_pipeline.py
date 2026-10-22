@@ -47,6 +47,7 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
         return
         
     import pandas as pd
+    import json
     
     try:
         dock_df = pd.read_csv(docking_csv)
@@ -56,6 +57,7 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
         
     d_docked = "DONEPEZIL" in surviving_sources
     s_docked = "SAFINAMIDE" in surviving_sources
+    l_docked = "LOPERAMIDE" in surviving_sources # THE FIX: Re-added Loperamide
     
     with open(final_json, "r", encoding="utf-8") as f:
         candidates = json.load(f)
@@ -70,12 +72,16 @@ def validate_fda_controls(docking_csv: Path, final_json: Path):
     if d_docked and s_docked:
         logging.info("  [BIOLOGY] Success: Donepezil & Safinamide passed BBB & QED filters.")
     else:
-        logging.warning(f"  [BIOLOGY] Failed: Controls dropped by biological filters! (Donepezil: {d_docked}, Safinamide: {s_docked})")
+        logging.warning(f"  [BIOLOGY] Failed: Pos. controls dropped! (Donepezil: {d_docked}, Safinamide: {s_docked})")
+
+    # THE FIX: Explicitly assert the negative control was destroyed
+    if not l_docked:
+        logging.info("  [BIOLOGY] Success: Loperamide (Negative Control) correctly rejected by filters.")
+    else:
+        logging.warning("  [BIOLOGY] FAILURE: Loperamide leaked through the BBB filter!")
         
     if d_topk and s_topk:
-        logging.info("  [PARETO] Success: Both controls reached the Top-20 Skyline.")
-    elif d_docked or s_docked:
-        logging.info("  [PARETO] Info: Controls survived biology, but were mathematically out-competed by ZINC molecules in the Top-20.")
+        logging.info("  [PARETO] Success: Positive controls reached the Top-K Skyline.")
         
     logging.info("-" * 60)
 
