@@ -1,0 +1,243 @@
+{
+ "n_library": 171,
+ "n_docked_both": 159,
+ "n_failed": 12,
+ "enrichment": {
+  "AChE": {
+   "n_act": 6,
+   "n_dec": 58,
+   "auc": 0.6192528735632183,
+   "lo": 0.40151785714285715,
+   "hi": 0.8225806451612903,
+   "size_baseline": 0.6293103448275862
+  },
+  "MAOB": {
+   "n_act": 6,
+   "n_dec": 58,
+   "auc": 0.6839080459770115,
+   "lo": 0.43167581085845236,
+   "hi": 0.8994349086617406,
+   "size_baseline": 0.34051724137931033
+  }
+ },
+ "size_correlation": {
+  "AChE": -0.4955093988666595,
+  "MAOB": 0.06938576651763649
+ },
+ "per_active": [
+  {
+   "name": "rivastigmine",
+   "target": "AChE",
+   "vina": -7.7,
+   "rank": 6,
+   "of": 6
+  },
+  {
+   "name": "tacrine",
+   "target": "AChE",
+   "vina": -9.6,
+   "rank": 1,
+   "of": 6
+  },
+  {
+   "name": "huperzine A",
+   "target": "AChE",
+   "vina": -11.1,
+   "rank": 1,
+   "of": 6
+  },
+  {
+   "name": "donepezil",
+   "target": "AChE",
+   "vina": -9.7,
+   "rank": 3,
+   "of": 6
+  },
+  {
+   "name": "selegiline",
+   "target": "MAOB",
+   "vina": -7.1,
+   "rank": 3,
+   "of": 6
+  },
+  {
+   "name": "physostigmine",
+   "target": "AChE",
+   "vina": -9.5,
+   "rank": 2,
+   "of": 5
+  },
+  {
+   "name": "rasagiline",
+   "target": "MAOB",
+   "vina": -8.2,
+   "rank": 1,
+   "of": 6
+  },
+  {
+   "name": "lazabemide",
+   "target": "MAOB",
+   "vina": -6.5,
+   "rank": 4,
+   "of": 5
+  },
+  {
+   "name": "pargyline",
+   "target": "MAOB",
+   "vina": -6.7,
+   "rank": 5,
+   "of": 6
+  },
+  {
+   "name": "safinamide",
+   "target": "MAOB",
+   "vina": -9.4,
+   "rank": 1,
+   "of": 6
+  },
+  {
+   "name": "ladostigil",
+   "target": "AChE",
+   "vina": -8.8,
+   "rank": 5,
+   "of": 6
+  },
+  {
+   "name": "ladostigil",
+   "target": "MAOB",
+   "vina": -8.4,
+   "rank": 4,
+   "of": 6
+  }
+ ],
+ "ablation": {
+  "docking only": {
+   "n": 20,
+   "true_bbb_rate": 0.6,
+   "mean_vina": -9.252500000000001,
+   "bbb_ci": "0.35-0.80",
+   "vina_ci": "-9.56--8.92"
+  },
+  "docking + physchem rule": {
+   "n": 20,
+   "true_bbb_rate": 0.7,
+   "mean_vina": -9.0925,
+   "bbb_ci": "0.50-0.90",
+   "vina_ci": "-9.46--8.72"
+  },
+  "docking + GNN gate (p>=0.5)": {
+   "n": 20,
+   "true_bbb_rate": 0.85,
+   "mean_vina": -8.8025,
+   "bbb_ci": "0.70-1.00",
+   "vina_ci": "-9.30--8.33"
+  },
+  "docking + rule + GNN gate": {
+   "n": 20,
+   "true_bbb_rate": 0.85,
+   "mean_vina": -8.8025,
+   "bbb_ci": "0.70-1.00",
+   "vina_ci": "-9.29--8.34"
+  },
+  "weighted sum (dock, BBB prob, QED)": {
+   "n": 20,
+   "true_bbb_rate": 0.9,
+   "mean_vina": -8.59,
+   "bbb_ci": "0.75-1.00",
+   "vina_ci": "-9.05--8.18"
+  },
+  "Pareto (AChE, MAO-B, BBB prob)": {
+   "n": 20,
+   "true_bbb_rate": 0.85,
+   "mean_vina": -8.532500000000002,
+   "bbb_ci": "0.62-0.95",
+   "vina_ci": "-8.96--8.11"
+  }
+ },
+ "controls": [
+  {
+   "name": "tacrine",
+   "pareto": 1,
+   "dock_rank": 12,
+   "p": 0.8720545172691345
+  },
+  {
+   "name": "rasagiline",
+   "pareto": 1,
+   "dock_rank": 56,
+   "p": 0.9730895757675172
+  },
+  {
+   "name": "risperidone",
+   "pareto": 1,
+   "dock_rank": 2,
+   "p": 0.7380276918411255
+  },
+  {
+   "name": "donepezil",
+   "pareto": 3,
+   "dock_rank": 48,
+   "p": 0.8393345475196838
+  },
+  {
+   "name": "physostigmine",
+   "pareto": 3,
+   "dock_rank": 108,
+   "p": 0.9546384811401368
+  },
+  {
+   "name": "ladostigil",
+   "pareto": 3,
+   "dock_rank": 38,
+   "p": 0.8773365020751953
+  },
+  {
+   "name": "safinamide",
+   "pareto": 3,
+   "dock_rank": 20,
+   "p": 0.6117400527000427
+  },
+  {
+   "name": "huperzine A",
+   "pareto": 3,
+   "dock_rank": 42,
+   "p": 0.6249341368675232
+  },
+  {
+   "name": "pimavanserin",
+   "pareto": 3,
+   "dock_rank": 56,
+   "p": 0.6465299129486084
+  },
+  {
+   "name": "pargyline",
+   "pareto": 5,
+   "dock_rank": 129,
+   "p": 0.931502640247345
+  },
+  {
+   "name": "selegiline",
+   "pareto": 5,
+   "dock_rank": 93,
+   "p": 0.92576402425766
+  },
+  {
+   "name": "loperamide",
+   "pareto": 5,
+   "dock_rank": 105,
+   "p": 0.8240731954574585
+  },
+  {
+   "name": "rivastigmine",
+   "pareto": 7,
+   "dock_rank": 118,
+   "p": 0.865184485912323
+  },
+  {
+   "name": "lazabemide",
+   "pareto": 8,
+   "dock_rank": 133,
+   "p": 0.6649041175842285
+  }
+ ]
+}

@@ -1,0 +1,16 @@
+# Exact versions used to produce results/ (Python 3.13, CPU-only, Linux). AutoDock Vina 1.1.2 binary + smina required on PATH.
+matplotlib==3.11.2
+meeko==0.8.0
+numpy==2.5.3
+pandas==3.0.5
+pytest==9.1.1
+python-dotenv==1.2.3
+rdkit==2026.9.1
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.18.1
+supabase==2.33.0
+torch==2.14.1
+torch-geometric==2.8.1
+tqdm==4.70.1
+xgboost==3.4.1

@@ -48,6 +48,10 @@ def stream_zinc_subset(
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     collected = 0
+    # Provenance manifest so downstream reports never mislabel the library.
+    import json as _json
+    source = "ZINC" if uri_list_path.exists() and any(u.startswith("http") for u in urls) and "HIV.csv" not in urls[0] else "MoleculeNet HIV set (NOT ZINC)"
+    (output_csv.parent / "library_source.json").write_text(_json.dumps({"source": source, "urls": urls[:3]}))
     
     with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=["smiles", "source_id"])

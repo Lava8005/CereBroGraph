@@ -1,0 +1,114 @@
+/usr/local/lib/python3.13/dist-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+WARNING: Hardware Acceleration Disabled: Utilizing CPU Fallback.
+INFO: Loaded 7793 molecules. Quarantined 12 FDA controls. Skipped 2 unparseable rows.
+INFO: Initializing GINE training on device: cpu (seed=0, split=scaffold)
+INFO: Starting training for max 50 epochs...
+INFO: Epoch 001 | Train Loss: 0.4769 | Val Loss: 0.4689 | ROC-AUC: 0.9140 | F1: 0.8493
+INFO: Epoch 002 | Train Loss: 0.3807 | Val Loss: 0.3537 | ROC-AUC: 0.9313 | F1: 0.8761
+INFO: Epoch 003 | Train Loss: 0.3489 | Val Loss: 0.3300 | ROC-AUC: 0.9315 | F1: 0.8639
+INFO: Epoch 004 | Train Loss: 0.3356 | Val Loss: 0.3730 | ROC-AUC: 0.9236 | F1: 0.8772
+INFO: Epoch 005 | Train Loss: 0.3240 | Val Loss: 0.3417 | ROC-AUC: 0.9137 | F1: 0.8669
+INFO: Epoch 006 | Train Loss: 0.3082 | Val Loss: 0.3304 | ROC-AUC: 0.9286 | F1: 0.8571
+INFO: Epoch 007 | Train Loss: 0.2916 | Val Loss: 0.3416 | ROC-AUC: 0.9430 | F1: 0.8450
+INFO: Epoch 008 | Train Loss: 0.2842 | Val Loss: 0.3653 | ROC-AUC: 0.9196 | F1: 0.8189
+INFO: Epoch 009 | Train Loss: 0.2737 | Val Loss: 0.3663 | ROC-AUC: 0.9244 | F1: 0.8404
+INFO: Epoch 010 | Train Loss: 0.2629 | Val Loss: 0.4450 | ROC-AUC: 0.8995 | F1: 0.7896
+INFO: Epoch 011 | Train Loss: 0.2641 | Val Loss: 0.3394 | ROC-AUC: 0.9310 | F1: 0.8555
+INFO: Epoch 012 | Train Loss: 0.2457 | Val Loss: 0.3199 | ROC-AUC: 0.9376 | F1: 0.8638
+INFO: Epoch 013 | Train Loss: 0.2313 | Val Loss: 0.3252 | ROC-AUC: 0.9368 | F1: 0.8559
+INFO: Epoch 014 | Train Loss: 0.2207 | Val Loss: 0.3478 | ROC-AUC: 0.9382 | F1: 0.8602
+WARNING: Early stopping at epoch 14. Reverting to best weights.
+INFO: Training complete. Loading best weights for Test Set evaluation...
+INFO: Held-Out TEST SET | Loss: 0.4226 | ROC-AUC: 0.9109 | F1: 0.8779
+[scaffold seed 0] 141.6s  rule_MW500_TPSA90_HBD3:0.796  logreg_6_descriptors:0.850  rf_morgan:0.933  rf_rdkit_descriptors:0.943  xgboost_desc_morgan:0.933  gine_gnn:0.911
+INFO: Loaded 7793 molecules. Quarantined 12 FDA controls. Skipped 2 unparseable rows.
+INFO: Initializing GINE training on device: cpu (seed=1, split=scaffold)
+INFO: Starting training for max 50 epochs...
+INFO: Epoch 001 | Train Loss: 0.4671 | Val Loss: 0.5114 | ROC-AUC: 0.8766 | F1: 0.8325
+INFO: Epoch 002 | Train Loss: 0.3651 | Val Loss: 0.3221 | ROC-AUC: 0.9654 | F1: 0.9164
+INFO: Epoch 003 | Train Loss: 0.3439 | Val Loss: 0.2759 | ROC-AUC: 0.9619 | F1: 0.9326
+INFO: Epoch 004 | Train Loss: 0.3246 | Val Loss: 0.2403 | ROC-AUC: 0.9689 | F1: 0.9379
+INFO: Epoch 005 | Train Loss: 0.3150 | Val Loss: 0.2865 | ROC-AUC: 0.9589 | F1: 0.9182
+INFO: Epoch 006 | Train Loss: 0.3012 | Val Loss: 0.2544 | ROC-AUC: 0.9624 | F1: 0.9202
+INFO: Epoch 007 | Train Loss: 0.3032 | Val Loss: 0.3840 | ROC-AUC: 0.9626 | F1: 0.9128
+INFO: Epoch 008 | Train Loss: 0.2894 | Val Loss: 0.3300 | ROC-AUC: 0.9574 | F1: 0.8983
+INFO: Epoch 009 | Train Loss: 0.2656 | Val Loss: 0.2833 | ROC-AUC: 0.9576 | F1: 0.9327
+INFO: Epoch 010 | Train Loss: 0.2533 | Val Loss: 0.2719 | ROC-AUC: 0.9572 | F1: 0.9195
+INFO: Epoch 011 | Train Loss: 0.2642 | Val Loss: 0.3125 | ROC-AUC: 0.9610 | F1: 0.9133
+WARNING: Early stopping at epoch 11. Reverting to best weights.
+INFO: Training complete. Loading best weights for Test Set evaluation...
+INFO: Held-Out TEST SET | Loss: 0.5109 | ROC-AUC: 0.8537 | F1: 0.8523
+[scaffold seed 1] 53.3s  rule_MW500_TPSA90_HBD3:0.739  logreg_6_descriptors:0.826  rf_morgan:0.914  rf_rdkit_descriptors:0.909  xgboost_desc_morgan:0.921  gine_gnn:0.854
+INFO: Loaded 7793 molecules. Quarantined 12 FDA controls. Skipped 2 unparseable rows.
+INFO: Initializing GINE training on device: cpu (seed=2, split=scaffold)
+INFO: Starting training for max 50 epochs...
+INFO: Epoch 001 | Train Loss: 0.4468 | Val Loss: 0.5839 | ROC-AUC: 0.7284 | F1: 0.8085
+INFO: Epoch 002 | Train Loss: 0.3589 | Val Loss: 0.5445 | ROC-AUC: 0.7773 | F1: 0.7705
+INFO: Epoch 003 | Train Loss: 0.3233 | Val Loss: 0.4566 | ROC-AUC: 0.8489 | F1: 0.8297
+INFO: Epoch 004 | Train Loss: 0.3104 | Val Loss: 0.4976 | ROC-AUC: 0.8379 | F1: 0.8121
+INFO: Epoch 005 | Train Loss: 0.3016 | Val Loss: 0.4962 | ROC-AUC: 0.8406 | F1: 0.8352
+INFO: Epoch 006 | Train Loss: 0.2911 | Val Loss: 0.4416 | ROC-AUC: 0.8696 | F1: 0.8546
+INFO: Epoch 007 | Train Loss: 0.2725 | Val Loss: 0.4440 | ROC-AUC: 0.8650 | F1: 0.8430
+INFO: Epoch 008 | Train Loss: 0.2662 | Val Loss: 0.4889 | ROC-AUC: 0.8548 | F1: 0.8362
+INFO: Epoch 009 | Train Loss: 0.2583 | Val Loss: 0.4895 | ROC-AUC: 0.8495 | F1: 0.8354
+INFO: Epoch 010 | Train Loss: 0.2483 | Val Loss: 0.4672 | ROC-AUC: 0.8608 | F1: 0.8408
+INFO: Epoch 011 | Train Loss: 0.2310 | Val Loss: 0.4869 | ROC-AUC: 0.8573 | F1: 0.8003
+INFO: Epoch 012 | Train Loss: 0.2230 | Val Loss: 0.4438 | ROC-AUC: 0.8727 | F1: 0.8380
+INFO: Epoch 013 | Train Loss: 0.2171 | Val Loss: 0.4464 | ROC-AUC: 0.8752 | F1: 0.8390
+INFO: Epoch 014 | Train Loss: 0.2106 | Val Loss: 0.5165 | ROC-AUC: 0.8481 | F1: 0.7804
+INFO: Epoch 015 | Train Loss: 0.2061 | Val Loss: 0.4854 | ROC-AUC: 0.8563 | F1: 0.8154
+INFO: Epoch 016 | Train Loss: 0.2023 | Val Loss: 0.4876 | ROC-AUC: 0.8677 | F1: 0.8156
+INFO: Epoch 017 | Train Loss: 0.1989 | Val Loss: 0.4770 | ROC-AUC: 0.8637 | F1: 0.8376
+INFO: Epoch 018 | Train Loss: 0.1824 | Val Loss: 0.4824 | ROC-AUC: 0.8578 | F1: 0.8000
+INFO: Epoch 019 | Train Loss: 0.1775 | Val Loss: 0.5029 | ROC-AUC: 0.8512 | F1: 0.8095
+INFO: Epoch 020 | Train Loss: 0.1716 | Val Loss: 0.5011 | ROC-AUC: 0.8524 | F1: 0.8003
+WARNING: Early stopping at epoch 20. Reverting to best weights.
+INFO: Training complete. Loading best weights for Test Set evaluation...
+INFO: Held-Out TEST SET | Loss: 0.4938 | ROC-AUC: 0.9385 | F1: 0.8860
+[scaffold seed 2] 56.6s  rule_MW500_TPSA90_HBD3:0.671  logreg_6_descriptors:0.836  rf_morgan:0.940  rf_rdkit_descriptors:0.934  xgboost_desc_morgan:0.939  gine_gnn:0.938
+INFO: Loaded 7793 molecules. Quarantined 12 FDA controls. Skipped 2 unparseable rows.
+INFO: Initializing GINE training on device: cpu (seed=3, split=scaffold)
+INFO: Starting training for max 50 epochs...
+INFO: Epoch 001 | Train Loss: 0.4593 | Val Loss: 0.7662 | ROC-AUC: 0.7765 | F1: 0.8148
+INFO: Epoch 002 | Train Loss: 0.3557 | Val Loss: 0.5848 | ROC-AUC: 0.8322 | F1: 0.8469
+INFO: Epoch 003 | Train Loss: 0.3275 | Val Loss: 0.5824 | ROC-AUC: 0.8387 | F1: 0.8347
+INFO: Epoch 004 | Train Loss: 0.3085 | Val Loss: 0.6061 | ROC-AUC: 0.8475 | F1: 0.8547
+INFO: Epoch 005 | Train Loss: 0.2992 | Val Loss: 0.6998 | ROC-AUC: 0.8623 | F1: 0.8590
+INFO: Epoch 006 | Train Loss: 0.2851 | Val Loss: 0.5904 | ROC-AUC: 0.8624 | F1: 0.8047
+INFO: Epoch 007 | Train Loss: 0.2764 | Val Loss: 0.7322 | ROC-AUC: 0.8562 | F1: 0.8541
+INFO: Epoch 008 | Train Loss: 0.2646 | Val Loss: 0.6476 | ROC-AUC: 0.8691 | F1: 0.8609
+INFO: Epoch 009 | Train Loss: 0.2583 | Val Loss: 0.6378 | ROC-AUC: 0.8595 | F1: 0.8666
+INFO: Epoch 010 | Train Loss: 0.2556 | Val Loss: 0.5750 | ROC-AUC: 0.8533 | F1: 0.8269
+INFO: Epoch 011 | Train Loss: 0.2563 | Val Loss: 0.8269 | ROC-AUC: 0.8495 | F1: 0.8581
+INFO: Epoch 012 | Train Loss: 0.2474 | Val Loss: 0.6995 | ROC-AUC: 0.8775 | F1: 0.8594
+INFO: Epoch 013 | Train Loss: 0.2351 | Val Loss: 0.7099 | ROC-AUC: 0.8369 | F1: 0.8411
+INFO: Epoch 014 | Train Loss: 0.2363 | Val Loss: 0.7792 | ROC-AUC: 0.8514 | F1: 0.8411
+INFO: Epoch 015 | Train Loss: 0.2268 | Val Loss: 0.7395 | ROC-AUC: 0.8610 | F1: 0.8607
+INFO: Epoch 016 | Train Loss: 0.2258 | Val Loss: 0.8475 | ROC-AUC: 0.8750 | F1: 0.8640
+INFO: Epoch 017 | Train Loss: 0.2056 | Val Loss: 0.8006 | ROC-AUC: 0.8727 | F1: 0.8612
+INFO: Epoch 018 | Train Loss: 0.1943 | Val Loss: 0.7980 | ROC-AUC: 0.8737 | F1: 0.8588
+INFO: Epoch 019 | Train Loss: 0.1904 | Val Loss: 0.9979 | ROC-AUC: 0.8768 | F1: 0.8595
+WARNING: Early stopping at epoch 19. Reverting to best weights.
+INFO: Training complete. Loading best weights for Test Set evaluation...
+INFO: Held-Out TEST SET | Loss: 0.3882 | ROC-AUC: 0.9088 | F1: 0.8533
+[scaffold seed 3] 54.3s  rule_MW500_TPSA90_HBD3:0.818  logreg_6_descriptors:0.890  rf_morgan:0.915  rf_rdkit_descriptors:0.918  xgboost_desc_morgan:0.916  gine_gnn:0.909
+INFO: Loaded 7793 molecules. Quarantined 12 FDA controls. Skipped 2 unparseable rows.
+INFO: Initializing GINE training on device: cpu (seed=4, split=scaffold)
+INFO: Starting training for max 50 epochs...
+INFO: Epoch 001 | Train Loss: 0.4478 | Val Loss: 0.4868 | ROC-AUC: 0.8768 | F1: 0.8395
+INFO: Epoch 002 | Train Loss: 0.3470 | Val Loss: 0.3247 | ROC-AUC: 0.9053 | F1: 0.9007
+INFO: Epoch 003 | Train Loss: 0.3221 | Val Loss: 0.3351 | ROC-AUC: 0.9056 | F1: 0.9134
+INFO: Epoch 004 | Train Loss: 0.3104 | Val Loss: 0.4513 | ROC-AUC: 0.8889 | F1: 0.8120
+INFO: Epoch 005 | Train Loss: 0.2947 | Val Loss: 0.3143 | ROC-AUC: 0.9196 | F1: 0.9069
+INFO: Epoch 006 | Train Loss: 0.2888 | Val Loss: 0.4688 | ROC-AUC: 0.8790 | F1: 0.8105
+INFO: Epoch 007 | Train Loss: 0.2836 | Val Loss: 0.3458 | ROC-AUC: 0.9026 | F1: 0.8916
+INFO: Epoch 008 | Train Loss: 0.2736 | Val Loss: 0.3601 | ROC-AUC: 0.9061 | F1: 0.8733
+INFO: Epoch 009 | Train Loss: 0.2657 | Val Loss: 0.3483 | ROC-AUC: 0.9028 | F1: 0.8965
+INFO: Epoch 010 | Train Loss: 0.2433 | Val Loss: 0.3121 | ROC-AUC: 0.9166 | F1: 0.9044
+INFO: Epoch 011 | Train Loss: 0.2276 | Val Loss: 0.3236 | ROC-AUC: 0.9158 | F1: 0.8931
+INFO: Epoch 012 | Train Loss: 0.2281 | Val Loss: 0.3547 | ROC-AUC: 0.8919 | F1: 0.8821
+WARNING: Early stopping at epoch 12. Reverting to best weights.
+INFO: Training complete. Loading best weights for Test Set evaluation...
+INFO: Held-Out TEST SET | Loss: 0.4546 | ROC-AUC: 0.8466 | F1: 0.8076
+[scaffold seed 4] 51.7s  rule_MW500_TPSA90_HBD3:0.711  logreg_6_descriptors:0.773  rf_morgan:0.868  rf_rdkit_descriptors:0.889  xgboost_desc_morgan:0.901  gine_gnn:0.847

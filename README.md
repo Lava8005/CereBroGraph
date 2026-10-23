@@ -39,6 +39,12 @@ After ranking, the orchestrator checks which of the five FDA validation controls
 * `vina_score` in the output is the **mean** Vina score across targets (more negative is better).
 * `composite_score` (0–1, higher is better) is the mean of the min-max-normalized objectives over all docked candidates. It orders molecules *within* a front; it is not what decides Pareto rank.
 
+### Filters added after review
+
+* Permanently charged or multi-fragment molecules (quaternary/aromatic cations, salts) are removed before BBB scoring.
+* Candidates need a docking score of at most **-7.0 kcal/mol on every target** (`min_affinity` in `generate_final_ranking`), so weak binders cannot reach the Pareto front just because they are non-dominated on BBB or QED.
+* The library provenance (ZINC or the MoleculeNet HIV fallback) is written to `data/library/raw/library_source.json`; report it in any results.
+
 ### Known limitation
 
 The BBB model is trained on B3DB and its output is used as-is, with no hard-coded overrides. P-gp substrates such as loperamide can therefore still score above the BBB threshold; the control check reports what the model does, it does not guarantee that controls are filtered out.

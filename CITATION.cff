@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it."
+title: "CerebroGraph: a CNS polypharmacology virtual-screening pipeline"
+type: software
+authors:
+  - family-names: Sharma
+    given-names: Lakshya
+repository-code: "https://github.com/Lava8005/CereBroGraph"
+# license: add after choosing one (e.g. MIT / Apache-2.0)

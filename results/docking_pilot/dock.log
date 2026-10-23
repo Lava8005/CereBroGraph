@@ -1,0 +1,6 @@
+INFO: Resuming physics engine. 101 candidates pending...
+WARNING: Vina TIMEOUT for /root/CereBroGraph/data/physics_engine/tmp_ligands/tmp675o1upp.pdbqt on Alzheimers_AChE.
+WARNING: Vina TIMEOUT for /root/CereBroGraph/data/physics_engine/tmp_ligands/tmp675o1upp.pdbqt on Parkinsons_MAOB.
+WARNING: Vina TIMEOUT for /root/CereBroGraph/data/physics_engine/tmp_ligands/tmpid6pd4k_.pdbqt on Parkinsons_MAOB.
+WARNING: Vina TIMEOUT for /root/CereBroGraph/data/physics_engine/tmp_ligands/tmplsze_hu7.pdbqt on Alzheimers_AChE.
+WARNING: Vina TIMEOUT for /root/CereBroGraph/data/physics_engine/tmp_ligands/tmplsze_hu7.pdbqt on Parkinsons_MAOB.

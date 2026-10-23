@@ -57,6 +57,7 @@ def generate_final_ranking(
     input_csv: Path = Path("data/physics_engine/docking_results.csv"),
     output_json: Path = Path("data/ranking/final_candidates.json"),
     top_k: int = 20,
+    min_affinity: float = -7.0,
 ):
     if not input_csv.exists():
         return _write_json(output_json, [])
@@ -101,6 +102,12 @@ def generate_final_ranking(
     df = df.dropna(subset=target_cols).copy()
     if len(df) < initial_len:
         logging.info(f"Dropped {initial_len - len(df)} candidates due to failed/missing dockings.")
+    # POLYPHARMACOLOGY FLOOR: Pareto only needs a molecule to be non-dominated, so a candidate with
+    # near-zero binding on one target can still reach the front. Require a real affinity on every target.
+    if min_affinity is not None and not df.empty:
+        before = len(df)
+        df = df[(df[target_cols] <= min_affinity).all(axis=1)].copy()
+        logging.info(f"Affinity floor {min_affinity} kcal/mol on every target removed {before - len(df)} candidates.")
     if df.empty:
         logging.error("No candidate docked successfully on every target; ranking is empty.")
         return _write_json(output_json, [])

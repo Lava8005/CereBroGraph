@@ -7,17 +7,21 @@ Tensor Core acceleration, learning rate scheduling, and early stopping guards.
 
 import json
 import logging
+import random
 import sys
 from pathlib import Path
+from typing import Optional
 
 project_root = str(Path(__file__).resolve().parent.parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch_geometric.loader import DataLoader
-from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_score
+from sklearn.metrics import (accuracy_score, average_precision_score, balanced_accuracy_score, f1_score,
+                             matthews_corrcoef, precision_score, recall_score, roc_auc_score)
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from vector_engine.b3db_loader import load_b3db_dataset
@@ -64,18 +68,55 @@ def evaluate_model(model: nn.Module, loader: DataLoader, criterion: nn.Module, d
     precision = precision_score(all_labels, preds_binary, zero_division=0)
     recall = recall_score(all_labels, preds_binary, zero_division=0)
     
-    metrics = {"roc_auc": roc_auc, "f1": f1, "precision": precision, "recall": recall}
+    try:
+        pr_auc = average_precision_score(all_labels, all_preds)
+    except ValueError:
+        pr_auc = float("nan")
+
+    metrics = {
+        "roc_auc": roc_auc, "pr_auc": pr_auc, "f1": f1, "precision": precision, "recall": recall,
+        "accuracy": accuracy_score(all_labels, preds_binary),
+        "balanced_accuracy": balanced_accuracy_score(all_labels, preds_binary),
+        "mcc": matthews_corrcoef(all_labels, preds_binary),
+    }
     return metrics, avg_loss
 
 
-def run_training(epochs: int = 50, batch_size: int = 256, patience: int = 7, seed: int = 42):
+def set_seed(seed: int) -> None:
+    """Seed every RNG that affects training (initialisation, shuffling, dropout)."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def run_training(
+    epochs: int = 50,
+    batch_size: int = 256,
+    patience: int = 7,
+    seed: int = 42,
+    split_mode: str = "scaffold",
+    checkpoint_path: Optional[Path] = None,
+    metrics_path: Optional[Path] = Path("data/vector_engine/bbb_eval_metrics.json"),
+    datasets: Optional[tuple] = None,
+) -> Optional[dict]:
+    """Train the BBB GINE model and return validation and test metrics.
+
+    `checkpoint_path` defaults to the shipped checkpoint location; pass another path
+    (for example in experiments) to avoid overwriting it. `datasets` may supply a
+    pre-built (train, val, test) tuple.
+    """
     dm = default_device_manager
-    logging.info(f"Initializing GINE training on device: {dm.device.type} (seed={seed})")
-    
-    train_dataset, val_dataset, test_dataset = load_b3db_dataset(split_mode="scaffold", seed=seed)
+    set_seed(seed)
+    logging.info(f"Initializing GINE training on device: {dm.device.type} (seed={seed}, split={split_mode})")
+
+    if datasets is None:
+        datasets = load_b3db_dataset(split_mode=split_mode, seed=seed)
+    train_dataset, val_dataset, test_dataset = datasets
     if not train_dataset or not val_dataset or not test_dataset:
         logging.error("Dataset loading failed. Aborting training.")
-        return
+        return None
         
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -94,13 +135,14 @@ def run_training(epochs: int = 50, batch_size: int = 256, patience: int = 7, see
     epochs_no_improve = 0
     best_metrics = {}
     
-    checkpoints_dir = Path("vector_engine/checkpoints")
-    checkpoints_dir.mkdir(parents=True, exist_ok=True)
-    best_model_path = checkpoints_dir / "best_bbb_gnn.pt"
+    best_model_path = Path(checkpoint_path) if checkpoint_path else Path("vector_engine/checkpoints/best_bbb_gnn.pt")
+    best_model_path.parent.mkdir(parents=True, exist_ok=True)
+    epochs_run = 0
     
     logging.info(f"Starting training for max {epochs} epochs...")
     
     for epoch in range(1, epochs + 1):
+        epochs_run = epoch
         model.train()
         total_loss = 0.0
         
@@ -158,13 +200,24 @@ def run_training(epochs: int = 50, batch_size: int = 256, patience: int = 7, see
     
     logging.info(f"Held-Out TEST SET | Loss: {test_loss:.4f} | ROC-AUC: {test_metrics['roc_auc']:.4f} | F1: {test_metrics['f1']:.4f}")
     
-    best_metrics['test_roc_auc'] = test_metrics['roc_auc']
-    best_metrics['test_f1'] = test_metrics['f1']
-    
-    metrics_path = Path("data/vector_engine/bbb_eval_metrics.json")
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(metrics_path, "w", encoding="utf-8") as f:
-        json.dump(best_metrics, f, indent=4)
+    result = {
+        "seed": seed,
+        "split_mode": split_mode,
+        "epochs_run": epochs_run,
+        "sizes": {"train": len(train_dataset), "val": len(val_dataset), "test": len(test_dataset)},
+        "val": best_metrics,
+        "test": test_metrics,
+    }
+    # Keys kept for backwards compatibility with earlier metric files
+    result["val"]["test_roc_auc"] = test_metrics["roc_auc"]
+    result["val"]["test_f1"] = test_metrics["f1"]
+
+    if metrics_path is not None:
+        metrics_path = Path(metrics_path)
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=4)
+    return result
 
 if __name__ == "__main__":
     run_training()

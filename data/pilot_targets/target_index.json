@@ -1,0 +1,14 @@
+[
+    {
+        "disease": "Alzheimers_AChE",
+        "pdb_id": "ACHE",
+        "pdbqt": "/root/CereBroGraph/data/pilot_targets/ACHE_target.pdbqt",
+        "grid": "/root/CereBroGraph/data/pilot_targets/ACHE_grid.json"
+    },
+    {
+        "disease": "Parkinsons_MAOB",
+        "pdb_id": "MAOB",
+        "pdbqt": "/root/CereBroGraph/data/pilot_targets/MAOB_target.pdbqt",
+        "grid": "/root/CereBroGraph/data/pilot_targets/MAOB_grid.json"
+    }
+]

@@ -90,3 +90,22 @@ def test_parse_target_scores_variants():
     assert parse_target_scores("{'A': -1.0}") == {"A": -1.0}
     assert parse_target_scores(float("nan")) == {}
     assert parse_target_scores("garbage") == {}
+
+
+def test_affinity_floor_removes_weak_binders(tmp_path):
+    rows = [_row("strong", {"A": -9.0, "B": -8.5}), _row("weak_b", {"A": -10.0, "B": -1.2})]
+    inp, out = tmp_path / "d.csv", tmp_path / "o.json"
+    _docking_csv(inp, rows)
+    res = generate_final_ranking(inp, out, min_affinity=-7.0)
+    assert [r["candidate_code"] for r in res] == ["strong"]
+    res_all = generate_final_ranking(inp, out, min_affinity=None)
+    assert len(res_all) == 2
+
+
+def test_charged_species_rejected():
+    from rdkit import Chem
+    from physics_engine.drug_likeness import is_neutral_organic
+    assert not is_neutral_organic(Chem.MolFromSmiles("C=Cc1cc[n+](CC(=O)c2ccccc2)cc1"))
+    assert not is_neutral_organic(Chem.MolFromSmiles("CC[NH3+].[Cl-]"))
+    assert is_neutral_organic(Chem.MolFromSmiles("c1ccccc1[N+](=O)[O-]"))
+    assert is_neutral_organic(Chem.MolFromSmiles("CCO"))

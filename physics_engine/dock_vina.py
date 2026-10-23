@@ -79,7 +79,17 @@ def prepare_ligand_pdbqt(smiles: str) -> Optional[str]:
         return None
 
 
-def dock_precomputed_target(vina_exe: str, ligand_pdbqt_path: str, target: dict) -> Tuple[str, float]:
+DEFAULT_EXHAUSTIVENESS = 8
+DEFAULT_TIMEOUT_S = 120
+
+
+def dock_precomputed_target(
+    vina_exe: str,
+    ligand_pdbqt_path: str,
+    target: dict,
+    exhaustiveness: int = DEFAULT_EXHAUSTIVENESS,
+    timeout: int = DEFAULT_TIMEOUT_S,
+) -> Tuple[str, float]:
     """Dock one prepared ligand against one target. Returns (disease, score); 0.0 means failure."""
     disease = target.get("disease", "Unknown")
     receptor_pdbqt = target.get("pdbqt")
@@ -104,11 +114,11 @@ def dock_precomputed_target(vina_exe: str, ligand_pdbqt_path: str, target: dict)
         "--size_y", str(g["size_y"]),
         "--size_z", str(g["size_z"]),
         "--cpu", "1",
-        "--exhaustiveness", "8",
+        "--exhaustiveness", str(exhaustiveness),
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         for line in result.stdout.split("\n"):
             match = _VINA_BEST_POSE.match(line)
             if match:
@@ -131,7 +141,9 @@ def process_molecule(
     targets: List[dict], 
     work_dir: Path, 
     output_csv: Path, 
-    csv_lock: threading.Lock
+    csv_lock: threading.Lock,
+    exhaustiveness: int = DEFAULT_EXHAUSTIVENESS,
+    timeout: int = DEFAULT_TIMEOUT_S,
 ) -> Tuple[dict, bool]:
     smiles = row.get("smiles", "")
     target_scores = {}
@@ -148,7 +160,7 @@ def process_molecule(
                 f.write(ligand_pdbqt_data)
                 
             for target in targets:
-                disease, score = dock_precomputed_target(vina_exe, temp_lig_path, target)
+                disease, score = dock_precomputed_target(vina_exe, temp_lig_path, target, exhaustiveness, timeout)
                 target_scores[disease] = score
         finally:
             if os.path.exists(temp_lig_path):
@@ -172,7 +184,10 @@ def process_molecule(
 def batch_execute_docking(
     input_csv: Path = Path("data/physics_engine/filtered_step2.csv"),
     output_csv: Path = Path("data/physics_engine/docking_results.csv"),
-    config_path: Path = Path("data/target/target_index.json")
+    config_path: Path = Path("data/target/target_index.json"),
+    max_workers: Optional[int] = None,
+    exhaustiveness: int = DEFAULT_EXHAUSTIVENESS,
+    timeout: int = DEFAULT_TIMEOUT_S,
 ) -> int:
     if not input_csv.exists() or not config_path.exists():
         logging.error("Missing inputs or target configuration. Cannot start physics engine.")
@@ -225,13 +240,14 @@ def batch_execute_docking(
     
     csv_lock = threading.Lock()
     total_processed = len(completed_codes)
-    max_threads = max(1, (os.cpu_count() or 2) - 2)
+    max_threads = max_workers if max_workers else max(1, (os.cpu_count() or 2) - 2)
     success_count = 0
     failed_per_target = {t.get("disease", "Unknown"): 0 for t in targets}
 
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         futures = {
-            executor.submit(process_molecule, vina_exe, row, targets, work_dir, output_csv, csv_lock): row
+            executor.submit(process_molecule, vina_exe, row, targets, work_dir, output_csv, csv_lock,
+                            exhaustiveness, timeout): row
             for row in pending_rows
         }
         

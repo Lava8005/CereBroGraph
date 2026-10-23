@@ -25,6 +25,13 @@ def is_vina_compatible(mol: Chem.Mol) -> bool:
             return False
     return True
 
+def is_neutral_organic(mol: Chem.Mol) -> bool:
+    """Reject permanently charged species (quaternary/aromatic cations, salts): they do not cross the BBB.
+
+    Zwitterions with net charge 0 (e.g. nitro groups, N-oxides) are kept.
+    """
+    return sum(a.GetFormalCharge() for a in mol.GetAtoms()) == 0 and len(Chem.GetMolFrags(mol)) == 1
+
 def calculate_lipinski(mol: Chem.Mol) -> int:
     violations = 0
     if Descriptors.MolWt(mol) > 500: violations += 1
@@ -80,7 +87,7 @@ def batch_compute_drug_likeness(
             for row in batch_rows:
                 mol = Chem.MolFromSmiles(row["smiles"])
                 if mol is not None:
-                    if not is_vina_compatible(mol):
+                    if not is_vina_compatible(mol) or not is_neutral_organic(mol):
                         continue
                     
                     # THE FIX: Apply strict CNS limits
