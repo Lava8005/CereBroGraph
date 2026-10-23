@@ -2,10 +2,12 @@ import pandas as pd
 import numpy as np
 
 def compute_pareto_fronts(df: pd.DataFrame, minimize_cols: list, maximize_cols: list) -> pd.DataFrame:
+    """NSGA-II style non-dominated sorting for true multi-objective optimization."""
     if df.empty or not minimize_cols:
         df["pareto_rank"] = 1
         df["crowding_distance"] = 0.0
         df["on_pareto_front"] = True
+        df["composite_score"] = 1.0
         return df
 
     data = df.copy()
@@ -52,7 +54,7 @@ def compute_pareto_fronts(df: pd.DataFrame, minimize_cols: list, maximize_cols: 
     for front in fronts:
         if len(front) <= 2:
             for idx in front:
-                crowding_distances[idx] = np.inf
+                crowding_distances[idx] = 999.0 # Valid JSON bound
             continue
             
         for obj_idx in range(len(obj_cols)):
@@ -64,15 +66,19 @@ def compute_pareto_fronts(df: pd.DataFrame, minimize_cols: list, maximize_cols: 
             if obj_range == 0:
                 continue
                 
-            crowding_distances[sorted_front[0]] = np.inf
-            crowding_distances[sorted_front[-1]] = np.inf
+            crowding_distances[sorted_front[0]] = 999.0
+            crowding_distances[sorted_front[-1]] = 999.0
                 
             for i in range(1, len(sorted_front) - 1):
-                if crowding_distances[sorted_front[i]] != np.inf:
+                if crowding_distances[sorted_front[i]] != 999.0:
                     distance = (coords[sorted_front[i+1], obj_idx] - coords[sorted_front[i-1], obj_idx]) / obj_range
                     crowding_distances[sorted_front[i]] += distance
 
     df['pareto_rank'] = pareto_ranks
     df['crowding_distance'] = crowding_distances
     df['on_pareto_front'] = (pareto_ranks == 1)
+    
+    # Composite incorporates Pareto Tier AND spatial diversity
+    df['composite_score'] = (1.0 / df['pareto_rank']) + (df['crowding_distance'] / 10000.0)
+    
     return df

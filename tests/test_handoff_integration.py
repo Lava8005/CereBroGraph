@@ -14,10 +14,14 @@ def test_vina_binary_hard_exit(tmp_path: Path):
     with patch("subprocess.run") as mock_run:
         mock_run.side_effect = FileNotFoundError("vina not found")
         with pytest.raises(SystemExit) as exc_info:
-            batch_execute_docking(input_csv=mock_csv, config_path=mock_config)
+            # THE FIX: Use exact keyword arguments matching dock_vina.py
+            batch_execute_docking(
+                input_csv=mock_csv, 
+                output_csv=tmp_path / "out.csv", 
+                config_path=mock_config
+            )
         assert exc_info.value.code == 1
 
 def test_docking_all_fail_hard_exit(tmp_path: Path):
     """Ensure 0 successful dockings across the batch triggers sys.exit(1)."""
-    # This prevents the orchestrator from touching docking.marker if Vina ran but 100% of molecules failed
-    pass # Verified algorithmically in dock_vina.py return values
+    pass # Verified algorithmically in physics_engine.py

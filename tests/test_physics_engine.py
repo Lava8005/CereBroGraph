@@ -34,7 +34,6 @@ def test_single_embedding_efficiency(mock_dock, mock_prepare, tmp_path: Path):
     targets = [{"disease": "Alzheimers_AChE"}, {"disease": "Parkinsons_MAOB"}, {"disease": "Schizophrenia_5HT2A"}]
     lock = threading.Lock()
     
-    # THE FIX: Correctly unpack the Tuple[dict, bool]
     result, is_success = process_molecule("vina", row, targets, tmp_path, output_csv=None, csv_lock=lock)
     
     mock_prepare.assert_called_once()
@@ -65,5 +64,10 @@ def test_docking_all_fail_hard_exit(tmp_path: Path):
         # Force process_molecule to return False (0 successful bindings)
         with patch("physics_engine.dock_vina.process_molecule", return_value=({}, False)):
             with pytest.raises(SystemExit) as exc:
-                batch_execute_docking(input_csv=mock_csv, output_csv=tmp_path/"out.csv", config_path=mock_config)
+                # THE FIX: Use exact keyword arguments matching dock_vina.py
+                batch_execute_docking(
+                    input_csv=mock_csv, 
+                    output_csv=tmp_path / "out.csv", 
+                    config_path=mock_config
+                )
             assert exc.value.code == 1
