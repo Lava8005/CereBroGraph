@@ -10,6 +10,7 @@ import csv
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -23,8 +24,15 @@ from rdkit.Chem import AllChem
 
 try:
     from meeko import MoleculePreparation, PDBQTWriterLegacy
-except ImportError:
-    logging.warning("Meeko missing. Fallback strings will be used (expect failures).")
+except ImportError as _meeko_err:  # pragma: no cover - depends on environment
+    MoleculePreparation = None
+    PDBQTWriterLegacy = None
+    _MEEKO_ERROR = str(_meeko_err)
+else:
+    _MEEKO_ERROR = ""
+
+# Vina prints its best pose as the row "   1   <affinity>   <rmsd>   <rmsd>".
+_VINA_BEST_POSE = re.compile(r"^\s*1\s+(-?\d+\.\d+)\b")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -58,31 +66,37 @@ def prepare_ligand_pdbqt(smiles: str) -> Optional[str]:
 
     try:
         preparator = MoleculePreparation()
-        preparator.prepare(mol)
-        if hasattr(preparator, 'write_pdbqt_string'):
-            return preparator.write_pdbqt_string()
-        else:
-            return PDBQTWriterLegacy.write_string(preparator)[0]
+        prepared = preparator.prepare(mol)
+        if isinstance(prepared, (list, tuple)):  # Meeko >= 0.6
+            pdbqt_string, is_ok, error_msg = PDBQTWriterLegacy.write_string(prepared[0])
+            if not is_ok:
+                logging.debug(f"Meeko could not write PDBQT for {smiles}: {error_msg}")
+                return None
+            return pdbqt_string
+        return PDBQTWriterLegacy.write_string(preparator)[0]  # Meeko < 0.6
     except Exception as e:
         logging.debug(f"Meeko preparation failed for {smiles}: {e}")
         return None
 
 
 def dock_precomputed_target(vina_exe: str, ligand_pdbqt_path: str, target: dict) -> Tuple[str, float]:
+    """Dock one prepared ligand against one target. Returns (disease, score); 0.0 means failure."""
     disease = target.get("disease", "Unknown")
     receptor_pdbqt = target.get("pdbqt")
     grid = target.get("grid")
-    
+
     if not receptor_pdbqt or not grid or not os.path.exists(receptor_pdbqt):
         return disease, 0.0
 
     with open(grid, "r", encoding="utf-8") as f:
         g = json.load(f)
 
+    out_path = f"{ligand_pdbqt_path}.{disease}.out.pdbqt"
     cmd = [
         vina_exe,
         "--receptor", receptor_pdbqt,
         "--ligand", ligand_pdbqt_path,
+        "--out", out_path,
         "--center_x", str(g["center_x"]),
         "--center_y", str(g["center_y"]),
         "--center_z", str(g["center_z"]),
@@ -90,20 +104,23 @@ def dock_precomputed_target(vina_exe: str, ligand_pdbqt_path: str, target: dict)
         "--size_y", str(g["size_y"]),
         "--size_z", str(g["size_z"]),
         "--cpu", "1",
-        "--exhaustiveness", "8"
+        "--exhaustiveness", "8",
     ]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         for line in result.stdout.split("\n"):
-            if line.strip().startswith("1"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    return disease, float(parts[1])
+            match = _VINA_BEST_POSE.match(line)
+            if match:
+                return disease, float(match.group(1))
+        logging.debug(f"No pose parsed for {disease}: {result.stderr.strip()[:200]}")
     except subprocess.TimeoutExpired:
-        logging.warning(f"Vina TIMEOUT for {ligand_pdbqt_path} on {disease}. Terminating.")
+        logging.warning(f"Vina TIMEOUT for {ligand_pdbqt_path} on {disease}.")
     except Exception as e:
         logging.debug(f"Vina crashed for {disease}: {e}")
+    finally:
+        if os.path.exists(out_path):
+            os.remove(out_path)
 
     return disease, 0.0
 
@@ -161,6 +178,13 @@ def batch_execute_docking(
         logging.error("Missing inputs or target configuration. Cannot start physics engine.")
         sys.exit(1)
 
+    if MoleculePreparation is None:
+        logging.error(
+            f"Meeko is required for ligand preparation but could not be imported: {_MEEKO_ERROR}. "
+            "Install it with: pip install meeko gemmi"
+        )
+        sys.exit(1)
+
     vina_exe = "vina" if os.name != "nt" else "vina.exe"
     try:
         subprocess.run([vina_exe, "--version"], capture_output=True, check=True)
@@ -170,6 +194,16 @@ def batch_execute_docking(
 
     with open(config_path, "r", encoding="utf-8") as f:
         targets = json.load(f)
+
+    invalid = [
+        t.get("disease", "Unknown") for t in targets
+        if not t.get("pdbqt") or not t.get("grid")
+        or not os.path.exists(t["pdbqt"]) or not os.path.exists(t["grid"])
+    ]
+    if invalid:
+        logging.error(f"Receptor or grid file missing for target(s): {', '.join(invalid)}. "
+                      "Re-run target/prepare_target.py.")
+        sys.exit(1)
 
     completed_codes = get_completed_candidates(output_csv)
     
@@ -191,8 +225,9 @@ def batch_execute_docking(
     
     csv_lock = threading.Lock()
     total_processed = len(completed_codes)
-    max_threads = max(1, os.cpu_count() - 2)
+    max_threads = max(1, (os.cpu_count() or 2) - 2)
     success_count = 0
+    failed_per_target = {t.get("disease", "Unknown"): 0 for t in targets}
 
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         futures = {
@@ -205,11 +240,21 @@ def batch_execute_docking(
                 row, is_success = future.result()
                 if is_success:
                     success_count += 1
+                for disease, score in json.loads(row.get("target_scores", "{}")).items():
+                    if score >= 0:
+                        failed_per_target[disease] = failed_per_target.get(disease, 0) + 1
                 total_processed += 1
             except Exception as e:
                 logging.error(f"Worker thread crashed: {e}")
 
-    # THE FIX: Hard exit if 100% of the batch failed, preventing false orchestrator success
+    for disease, failed in failed_per_target.items():
+        if failed:
+            logging.warning(f"Target {disease}: {failed}/{len(pending_rows)} dockings failed (scored 0.0).")
+        if failed == len(pending_rows):
+            logging.error(f"Target {disease} failed for EVERY molecule; the strict ranking will be empty. "
+                          "Check its receptor and grid box.")
+
+    # Hard exit if 100% of the batch failed, preventing false orchestrator success
     if total_processed > 0 and success_count == 0:
         logging.error("Catastrophic failure: All docked molecules returned 0.0 scores.")
         logging.error("The Vina grid or receptor is likely invalid. Halting pipeline.")

@@ -23,7 +23,7 @@ def test_evaluate_model_metrics():
         edge_attr, global_features = None, None
         y = torch.tensor([0, 1, 0, 1]) # 2 True Positives, 1 False Pos, 1 False Neg
         
-        def to(self, device): return self
+        def to(self, *args, **kwargs): return self
         
     mock_loader = [MockBatch()]
     criterion = nn.BCEWithLogitsLoss()

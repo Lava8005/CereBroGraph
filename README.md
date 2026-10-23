@@ -1,79 +1,152 @@
 # 🧬 CerebroGraph: Polypharmacology Virtual Screening Pipeline
 
+![CI](https://github.com/Lava8005/CereBroGraph/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-Geometric-EE4C2C.svg)
 ![AutoDock Vina](https://img.shields.io/badge/Physics-AutoDock_Vina-lightgrey.svg)
 ![React](https://img.shields.io/badge/Dashboard-React-61DAFB.svg)
-![Build](https://img.shields.io/badge/Build-Passing-brightgreen.svg)
 
-CerebroGraph is a high-throughput, computationally optimized bioinformatics pipeline designed for CNS (Central Nervous System) polypharmacology. 
+CerebroGraph is a computationally optimized screening pipeline for CNS (Central Nervous System) polypharmacology: it looks for single molecules that can cross the Blood-Brain Barrier (BBB) **and** bind several disease targets at once.
 
 ## 🧠 What and Why?
 
-**The Problem (Why):** Neurological disorders like Alzheimer's, Parkinson's, and Schizophrenia are rarely cured by single-target drugs. Traditional drug discovery targets one protein at a time, often resulting in therapies that fail to cross the Blood-Brain Barrier (BBB) or lack the multi-faceted efficacy needed for complex brain diseases.
+**The Problem:** Neurological disorders such as Alzheimer's, Parkinson's and Schizophrenia are rarely cured by single-target drugs, and many candidates fail because they never reach the brain.
 
-**The Solution (What):** CerebroGraph utilizes **Polypharmacology**—discovering single molecules that purposefully target multiple disease receptors simultaneously. By orchestrating Graph Neural Networks (GNNs) for BBB permeability prediction and parallelized thermodynamic docking (AutoDock Vina), CerebroGraph mathematically isolates the most promising multi-target therapeutic candidates from massive chemical libraries.
+**The Solution:** CerebroGraph combines a Graph Neural Network for BBB permeability with parallelized AutoDock Vina docking against several receptors, then ranks molecules with multi-objective (Pareto) optimization and publishes the best ones to a React dashboard backed by Supabase.
 
-## ⚙️ How It Works: System Architecture
+## ⚙️ How It Works
 
-The pipeline operates as a strictly cached, idempotent state machine across five tiers:
-1. **Data Ingestion & Curation:** Canonicalizes SMILES and applies deterministic InChIKey hashing for collision-free relational database synchronization.
-2. **Physicochemical Filtering:** Strict CNS multi-parameter optimization ($MW \le 500$, $TPSA \le 90$, $HBD \le 3$).
-3. **Machine Learning (Vector Engine):** A 27/7/2 Graph Isomorphism Network with Edges (GINE) predicts BBB permeability using topological embeddings and global molecular descriptors.
-4. **Physics Engine:** Automates RCSB PDB retrieval, isolates biological active site centroids (chain-aware), and executes $\mathcal{O}(M)$ parallelized AutoDock Vina simulations across multiple receptors (AChE, MAO-B, 5-HT2A).
-5. **Pareto Skyline Ranking:** Utilizes multi-objective optimization to rank molecules and syncs the Pareto front to a Supabase-backed React dashboard.
+The pipeline is a cached state machine (`run_pipeline.py`); each stage skips itself when its inputs have not changed.
+
+| # | Stage | Script | Output |
+|---|-------|--------|--------|
+| 0 | Target preparation: downloads PDB entries, finds the active-site centre from the native ligand, converts receptors to PDBQT | `target/prepare_target.py` | `data/target/` |
+| 1 | Library download (ZINC tranches, or a fallback set) + FDA control injection | `library/download_zinc.py` | `data/library/raw/zinc_subset.csv` |
+| 2 | Curation: canonical SMILES, InChIKey-based `candidate_code` | `library/curate.py` | `data/library/curated_library.csv` |
+| 3 | Physicochemical filter (MW ≤ 500, TPSA ≤ 90, HBD ≤ 3) + QED | `physics_engine/drug_likeness.py` | `data/physics_engine/filtered_step1.csv` |
+| 4 | BBB prediction with a GINE graph network (27 node / 7 edge features + 2 global descriptors) | `vector_engine/predict_bbb.py` | `data/physics_engine/filtered_step2.csv` |
+| 5 | Multi-target docking with AutoDock Vina (AChE, MAO-B, 5-HT2A) | `physics_engine/dock_vina.py` | `data/physics_engine/docking_results.csv` |
+| 6 | Pareto ranking | `ranking/pipeline_ranker.py` | `data/ranking/final_candidates.json` |
+| 7 | Sync to Supabase (skipped if credentials are absent) | `database/upload_results.py` | table `polypharmacology_results` |
+
+After ranking, the orchestrator checks which of the five FDA validation controls (donepezil, safinamide, loperamide, risperidone, pimavanserin) reached the Pareto front.
+
+### How candidates are ranked
+
+* A candidate must have a **valid docking score (< 0 kcal/mol) on every target**; otherwise it is dropped (strict polypharmacology).
+* Objectives: minimize the Vina score on each target, maximize BBB probability and QED.
+* Candidates are ordered by **Pareto rank**, then **crowding distance** (to keep the list diverse; front boundary points get a large finite value so the JSON stays valid), then **mean Vina score**.
+* `vina_score` in the output is the **mean** Vina score across targets (more negative is better).
+* `composite_score` (0–1, higher is better) is the mean of the min-max-normalized objectives over all docked candidates. It orders molecules *within* a front; it is not what decides Pareto rank.
+
+### Known limitation
+
+The BBB model is trained on B3DB and its output is used as-is, with no hard-coded overrides. P-gp substrates such as loperamide can therefore still score above the BBB threshold; the control check reports what the model does, it does not guarantee that controls are filtered out.
 
 ---
 
-## 🛠️ The 3-in-1 Development Methodology
+## 🖥️ Requirements
 
-CerebroGraph is built and maintained using a strict **3-in-1 Full-Cycle Software Development Pipeline**. All future contributions must adhere to these three sequential phases:
+* **OS:** Linux (Ubuntu 20.04+), macOS, or Windows via WSL2.
+* **Python 3.11+** and **Node.js 20.19+** (22 recommended).
+* **GPU (optional):** NVIDIA GPU with CUDA for faster GNN training; everything falls back to CPU.
+* **RAM:** 16 GB+ recommended.
+* **External binaries** (must be on your `PATH`):
+  * **AutoDock Vina** (`vina`): <https://vina.scripps.edu/downloads/>
+  * **Open Babel** (`obabel`): <https://openbabel.org/docs/current/Installation/install.html> (Ubuntu: `sudo apt install openbabel`)
 
-1. **🏛️ ARCHITECT (System Design & Trade-offs):** Before writing code, analyze scale, memory, and dependencies. Propose architectural approaches, weigh trade-offs (e.g., cross-chain centroid averaging vs. isolated chain targeting), and lock in a blueprint.
-2. **🧪 TDD ENGINEER (Test-Driven Implementation):** Write comprehensive test suites FIRST (e.g., catching FDA controls leaking through homologous naming). Provide robust, production-ready code that passes the suite with structured error handling and strict typing.
-3. **🔍 REVIEWER (Strict Code & Security Audit):** Conduct Big-O complexity analysis, ensure idempotent state-machine caching (preventing cache-thrashing via OS `st_mtime`), and audit security (e.g., Supabase Row Level Security).
+Check them with `vina --version` and `obabel -V`.
 
----
+## 🚀 Setup
 
-## 🖥️ System Requirements & Prerequisites
-
-### 1. Hardware
-* **OS:** Linux (Ubuntu 20.04+ recommended), macOS, or Windows (WSL2 preferred).
-* **GPU (Recommended):** NVIDIA GPU with CUDA 12.x support for GNN training. Will seamlessly fall back to CPU.
-* **RAM:** 16GB+ Minimum.
-
-### 2. External System Binaries (CRITICAL)
-CerebroGraph requires two external C++ cheminformatics tools to be installed and accessible in your system's `PATH`:
-* **AutoDock Vina** (`vina` or `vina.exe`): [Download Here](https://vina.scripps.edu/downloads/)
-* **Open Babel** (`obabel` or `obabel.exe`): [Download Here](https://openbabel.org/docs/current/Installation/install.html) (On Ubuntu: `sudo apt install openbabel`)
-
-*Verification:* Run `vina --version` and `obabel -V` in your terminal. Both must return valid version numbers before proceeding.
-
-### 3. Environment Setup
-Ensure Python 3.11+ and Node.js are installed.
 ```bash
-# Clone the repository
-git clone [https://github.com/your-username/CerebroGraph.git](https://github.com/your-username/CerebroGraph.git)
-cd CerebroGraph
+# 1. Clone and enter the repository
+git clone https://github.com/Lava8005/CereBroGraph.git
+cd CereBroGraph
 
-# Create and activate virtual environment
+# 2. Create and activate a virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate          # Windows: venv\Scripts\activate
 
-# Install strictly defined dependencies
+# 3. Install Python dependencies
 pip install -r requirements.txt
+```
 
-Steps to Run -:
-# .env (Place in root directory)
-SUPABASE_URL=[https://your-project.supabase.co](https://your-project.supabase.co)
-SUPABASE_KEY=your_service_role_key
+### Supabase (needed for the dashboard and the sync stage)
 
+1. Create a Supabase project.
+2. In the SQL editor, run [`db/schema.sql`](db/schema.sql). It is safe to re-run and never drops data.
+3. Copy `.env.example` to `.env` in the repository root and fill it in:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   ```env
+   SUPABASE_URL=https://your-project-id.supabase.co
+   SUPABASE_KEY=your_service_role_key
+   ```
+
+   The service-role key is used **only** by the Python sync script. Keep `.env` out of version control (it is git-ignored).
+
+If you skip this section, the pipeline still runs and simply skips the database sync.
+
+## ▶️ Running the pipeline
+
+```bash
+# Build the molecule library (50k molecules including the 5 controls).
 python library/download_zinc.py --count 50000
+```
 
+By default this downloads from the ZINC tranche list in `ZINC-downloader-2D-smi.uri`. That file is not shipped with the repo: generate it at <https://zinc.docking.org/tranches/home/> (choose the *2D → SMILES* downloader) and place it in the repo root, or pass `--uri-file path/to/file.uri`. **Without it, the script falls back to the public MoleculeNet HIV set** (drug-like, but not ZINC) and says so in the log.
+
+```bash
+# Optional: retrain the BBB model (a trained checkpoint is already included).
 python vector_engine/train_eval.py
 
+# Run everything: targets -> curation -> filters -> BBB -> docking -> ranking -> DB sync.
 python run_pipeline.py
+```
 
+* `python run_pipeline.py --force` re-runs every stage and discards previous docking scores.
+* Docking is resumable: if it is interrupted, re-running continues from `docking_results.csv`. Scores are discarded automatically if the receptors or grid boxes change.
+* To make the database mirror only the latest ranking (deleting rows from older runs), run `python database/upload_results.py --replace` after the pipeline.
+
+## 📊 Dashboard
+
+```bash
 cd dashboard
+cp .env.example .env       # then set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (the anon/publishable key)
 npm install
 npm run dev
+```
+
+The dashboard reads the `polypharmacology_results` table (Pareto-front rows only) through Supabase row-level security, which allows public reads and service-role writes. If the two `VITE_` variables are missing, the page shows a configuration message instead of a blank screen.
+
+## ✅ Tests
+
+```bash
+python -m pytest              # Python suite (CUDA tests skip automatically without a GPU)
+cd dashboard && npm test      # Dashboard (Vitest)
+cd dashboard && npm run lint && npm run build
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs both suites on every push and pull request. Tests that need Supabase credentials are skipped unless `SUPABASE_URL` and `SUPABASE_KEY` are set.
+
+## 🗂️ Repository layout
+
+```
+config/           target definitions (PDB IDs and grid-box sizes)
+library/          ZINC download + curation
+physics_engine/   drug-likeness filter and Vina docking
+vector_engine/    B3DB loader, graph featurizer, GINE model, training, inference
+ranking/          Pareto sorting and final ranking
+database/         Supabase client and upload
+db/schema.sql     table + row-level-security policies
+dashboard/        React + Vite front end
+tests/            pytest suite
+```
+
+## 🛠️ Development methodology
+
+Contributions follow three phases: **Architect** (design and trade-offs before code), **TDD Engineer** (tests first, typed and handled errors), and **Reviewer** (complexity, idempotent caching, and security review, e.g. Supabase row-level security).

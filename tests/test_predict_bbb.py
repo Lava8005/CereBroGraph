@@ -2,6 +2,8 @@ import pytest
 from pathlib import Path
 from vector_engine.predict_bbb import run_bbb_inference
 
+CHECKPOINT = Path(__file__).resolve().parent.parent / "vector_engine" / "checkpoints" / "best_bbb_gnn.pt"
+
 def test_bbb_inference_streaming_bounds(tmp_path: Path):
     """Ensure BBB module streams and returns an integer count, preventing RAM leaks."""
     in_csv = tmp_path / "filtered_step1.csv"
@@ -13,7 +15,8 @@ def test_bbb_inference_streaming_bounds(tmp_path: Path):
     processed_count = run_bbb_inference(
         input_csv=in_csv, 
         output_csv=out_csv, 
-        model_weights_path=None, 
+        model_weights_path=CHECKPOINT,
+        bbb_threshold=0.0,
         batch_size=2
     )
     
@@ -26,3 +29,10 @@ def test_bbb_inference_streaming_bounds(tmp_path: Path):
     lines = out_csv.read_text().strip().split('\n')
     assert len(lines) == 4 # 1 header + 3 candidates
     assert "bbb_probability" in lines[0]
+
+
+def test_missing_weights_raise(tmp_path: Path):
+    in_csv = tmp_path / "in.csv"
+    in_csv.write_text("candidate_code,smiles\nOV-1,CCO\n")
+    with pytest.raises(FileNotFoundError):
+        run_bbb_inference(input_csv=in_csv, output_csv=tmp_path / "out.csv", model_weights_path=tmp_path / "nope.pt")

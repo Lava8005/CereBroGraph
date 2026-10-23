@@ -89,9 +89,16 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
         cx, cy, cz = centroid
     else:
         active_site = target_config.get("active_site", {})
-        cx = float(active_site.get("center_x", 0.0))
-        cy = float(active_site.get("center_y", 0.0))
-        cz = float(active_site.get("center_z", 0.0))
+        if not all(k in active_site for k in ("center_x", "center_y", "center_z")):
+            logging.error(
+                f"No native ligand ({', '.join(sorted(ligands_to_extract))}) found in {pdb_id} and no "
+                f"active_site center_x/y/z in config for {disease}. Refusing to dock into a (0,0,0) grid box."
+            )
+            sys.exit(1)
+        logging.warning(f"Native ligand not found in {pdb_id}; using configured active_site center for {disease}.")
+        cx = float(active_site["center_x"])
+        cy = float(active_site["center_y"])
+        cz = float(active_site["center_z"])
 
     # Generate Grid Box JSON, but ONLY write to disk if coordinates changed
     # to prevent altering the OS mtime and thrashing the docking cache.

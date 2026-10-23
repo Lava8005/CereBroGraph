@@ -82,7 +82,8 @@ def batch_curate_library(
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             chunks = []
             
-            # Read CSV lazily in chunks to maintain O(1) memory footprint
+            # NOTE: the raw CSV is split into chunks up-front, so memory grows with the
+            # input size (fine for tens of thousands of rows).
             while True:
                 chunk = list(islice(reader, chunk_size))
                 if not chunk:

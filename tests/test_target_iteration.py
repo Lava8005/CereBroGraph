@@ -5,8 +5,8 @@ from pathlib import Path
 def test_target_list_iteration_schema(tmp_path: Path):
     """Ensure target preparation correctly parses the universal JSON array schema."""
     mock_targets = [
-        {"disease": "Alzheimers_AChE", "pdb_id": "1E66", "ligand_res_name": "HUX"},
-        {"disease": "Parkinsons_MAOB", "pdb_id": "2V5Z", "ligand_res_name": "SAG"}
+        {"disease": "Alzheimers_AChE", "pdb_id": "4EY7"},
+        {"disease": "Parkinsons_MAOB", "pdb_id": "2V5Z"}
     ]
     
     config_path = tmp_path / "cns_targets.json"

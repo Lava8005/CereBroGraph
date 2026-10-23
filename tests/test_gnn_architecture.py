@@ -26,6 +26,7 @@ def test_gine_forward_pass():
 def test_missing_globals_fallback():
     """Ensure the model doesn't crash if global features are temporarily absent."""
     model = BBBGraphModel(num_node_features=27, edge_dim=7, global_dim=0, hidden_dim=64)
+    model.eval()  # BatchNorm needs eval mode for a single graph
     x = torch.randn(3, 27)
     edge_index = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)
     edge_attr = torch.randn(2, 7)

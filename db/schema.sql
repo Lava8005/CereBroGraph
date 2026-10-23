@@ -1,6 +1,5 @@
-DROP TABLE IF EXISTS polypharmacology_results;
-
-CREATE TABLE polypharmacology_results (
+-- Safe to re-run: never drops existing data. To reset, run `TRUNCATE polypharmacology_results;` yourself.
+CREATE TABLE IF NOT EXISTS polypharmacology_results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     candidate_code TEXT UNIQUE NOT NULL,
     source_id TEXT,
@@ -17,7 +16,7 @@ CREATE TABLE polypharmacology_results (
 
 ALTER TABLE polypharmacology_results ENABLE ROW LEVEL SECURITY;
 
--- THE FIX: Drop policies before creation to ensure script idempotency
+-- Drop policies before creation so this script can be re-run
 DROP POLICY IF EXISTS "Allow public read access" ON polypharmacology_results;
 CREATE POLICY "Allow public read access" 
 ON polypharmacology_results FOR SELECT USING (true);

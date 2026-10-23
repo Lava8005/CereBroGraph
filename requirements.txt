@@ -7,7 +7,10 @@ torch-geometric>=2.3.0
 rdkit>=2023.3.1
 python-dotenv>=1.0.0
 supabase>=2.3.0
-meeko>=0.5.0
+meeko>=0.6.0
+gemmi>=0.6.0          # required by meeko
+matplotlib>=3.7.0     # analysis/ figure scripts
+pytest>=7.4.0
 
 # EXTERNAL SYSTEM DEPENDENCIES (MUST BE IN SYSTEM PATH):
 # 1. AutoDock Vina (vina or vina.exe) - https://vina.scripps.edu/

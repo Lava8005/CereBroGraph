@@ -16,6 +16,12 @@ from typing import List
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 PROJECT_ROOT = Path(__file__).parent.resolve()
 
+try:  # allow SUPABASE_* to come from a .env file, as database/supabase_client.py does
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass
+
 def is_stale(inputs: List[Path], output: Path) -> bool:
     if not output.exists():
         return True
@@ -25,7 +31,7 @@ def is_stale(inputs: List[Path], output: Path) -> bool:
             return True
     return False
 
-def run_stage(script_relative_path: str, stage_name: str, force: bool = False):
+def run_stage(script_relative_path: str, stage_name: str):
     script_path = PROJECT_ROOT / script_relative_path
     if not script_path.exists():
         logging.error(f"Missing executable module: {script_path}")
@@ -33,7 +39,6 @@ def run_stage(script_relative_path: str, stage_name: str, force: bool = False):
         
     logging.info(f"Executing Stage: {stage_name}...")
     cmd = [sys.executable, str(script_path)]
-    if force: cmd.append("--force")
         
     try:
         subprocess.run(cmd, cwd=PROJECT_ROOT, check=True)
@@ -61,7 +66,7 @@ def validate_fda_controls(docking_csv: Path, rank_json: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Run the Polypharmacology Virtual Screening Pipeline.")
-    parser.add_argument("--force", action="store_true", help="Force run all stages, bypassing cache.")
+    parser.add_argument("--force", action="store_true", help="Re-run every stage, ignoring caches and discarding previous docking results.")
     args = parser.parse_args()
 
     raw_lib = PROJECT_ROOT / "data" / "library" / "raw" / "zinc_subset.csv"
@@ -76,25 +81,25 @@ def main():
     gnn_checkpoint = PROJECT_ROOT / "vector_engine" / "checkpoints" / "best_bbb_gnn.pt"
     docking_marker = PROJECT_ROOT / "data" / "physics_engine" / "docking.marker"
 
-    run_stage("target/prepare_target.py", "Target Preparation", args.force)
+    run_stage("target/prepare_target.py", "Target Preparation")
 
     # Self-healing if downloader was skipped
     if not raw_lib.exists():
         logging.info("Raw library not found. Auto-launching Downloader...")
-        run_stage("library/download_zinc.py", "Database Downloader", args.force)
+        run_stage("library/download_zinc.py", "Database Downloader")
 
     if args.force or is_stale([raw_lib], curated_lib):
-        run_stage("library/curate.py", "Curate Library", args.force)
+        run_stage("library/curate.py", "Curate Library")
     else:
         logging.info("Skipping Stage: Curate Library (Cache hit)")
 
     if args.force or is_stale([curated_lib], filtered_step1):
-        run_stage("physics_engine/drug_likeness.py", "Drug Likeness Filter", args.force)
+        run_stage("physics_engine/drug_likeness.py", "Drug Likeness Filter")
     else:
         logging.info("Skipping Stage: Drug Likeness (Cache hit)")
 
     if args.force or is_stale([filtered_step1, gnn_checkpoint], filtered_step2):
-        run_stage("vector_engine/predict_bbb.py", "BBB GNN Inference", args.force)
+        run_stage("vector_engine/predict_bbb.py", "BBB GNN Inference")
     else:
         logging.info("Skipping Stage: BBB GNN Inference (Cache hit)")
 
@@ -102,17 +107,23 @@ def main():
     docking_inputs = [filtered_step2, target_index] + target_artifacts
 
     if args.force or not docking_marker.exists() or is_stale(docking_inputs, docking_marker):
-        # DO NOT unlink docking_results.csv here, otherwise Vina can never resume!
+        # Resume by default (dock_vina skips candidates already in docking_results.csv),
+        # but discard old scores when --force is given or the receptors/grids changed,
+        # because those scores would no longer be valid.
+        targets_changed = docking_results.exists() and is_stale([target_index] + target_artifacts, docking_results)
+        if (args.force or targets_changed) and docking_results.exists():
+            logging.info("Discarding previous docking results (--force or receptor/grid changed).")
+            docking_results.unlink()
         if docking_marker.exists():
             docking_marker.unlink()
             
-        run_stage("physics_engine/dock_vina.py", "AutoDock Vina Docking", args.force)
+        run_stage("physics_engine/dock_vina.py", "AutoDock Vina Docking")
         docking_marker.touch()
     else:
         logging.info("Skipping Stage: AutoDock Vina Docking (Cache hit)")
 
     if args.force or is_stale([docking_results], final_json):
-        run_stage("ranking/pipeline_ranker.py", "Skyline Pareto Ranking", args.force)
+        run_stage("ranking/pipeline_ranker.py", "Skyline Pareto Ranking")
     else:
         logging.info("Skipping Stage: Skyline Pareto Ranking (Cache hit)")
 
@@ -120,7 +131,7 @@ def main():
     
     # Prevent fatal crashes on CI/CD environments without keys
     if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"):
-        run_stage("database/upload_results.py", "Database Sync", args.force)
+        run_stage("database/upload_results.py", "Database Sync")
     else:
         logging.warning("Skipping Database Sync: SUPABASE_URL / SUPABASE_KEY not found in environment.")
         

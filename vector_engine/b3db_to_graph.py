@@ -7,6 +7,7 @@ to maximize CPU parse-rate and feed the GPU efficiently.
 """
 
 import torch
+from typing import Optional
 from torch_geometric.data import Data
 from rdkit import Chem
 from rdkit.Chem import Descriptors
@@ -80,8 +81,12 @@ def get_edge_dim() -> int:
 # Graph Construction
 # -------------------------------------------------------------------------
 
-def smiles_to_graph(smiles: str, is_inference: bool = False) -> Data:
-    """Convert a SMILES string to a mathematically rich PyTorch Geometric graph."""
+def smiles_to_graph(smiles: str, label: Optional[int] = None, is_inference: bool = False) -> Optional[Data]:
+    """Convert a SMILES string to a PyTorch Geometric graph.
+
+    `label` (0/1) is attached as `data.y` when provided (training). `is_inference`
+    skips the Murcko scaffold computation, which is only needed for splitting.
+    """
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None
@@ -135,8 +140,10 @@ def smiles_to_graph(smiles: str, is_inference: bool = False) -> Data:
     # 5. Assemble PyG Data Object
     data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, global_features=global_features)
     data.smiles = smiles
-    
+    if label is not None:
+        data.y = torch.tensor([float(label)], dtype=torch.float32)
+
     if not is_inference:
         data.scaffold = scaffold_smiles
-        
+
     return data

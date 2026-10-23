@@ -1,8 +1,8 @@
 """Inference Engine for Blood-Brain Barrier (BBB) Permeability Prediction.
 
 Streams candidates through the pre-trained GINE model. Utilizes ProcessPoolExecutor
-for CPU-bound RDKit featurization to keep the GPU fully saturated. Enforces Pareto
-queue truncation to strictly bound downstream AutoDock Vina physics compute times.
+for CPU-bound RDKit featurization to keep the GPU fully saturated. Optionally caps the
+docking queue to the top candidates by (BBB probability x QED) to bound Vina compute time.
 """
 
 import csv

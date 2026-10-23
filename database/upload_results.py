@@ -18,8 +18,15 @@ from database.supabase_client import supabase
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 def upload_final_candidates(
-    input_json: Path = Path("data/ranking/final_candidates.json")
+    input_json: Path = Path("data/ranking/final_candidates.json"),
+    replace: bool = False,
 ):
+    """Upsert candidates. With replace=True, rows from earlier runs that are not in this
+    run's candidate list are deleted, so the dashboard shows only the latest ranking."""
+    if supabase is None:
+        logging.error("Supabase client is not configured (SUPABASE_URL / SUPABASE_KEY missing).")
+        sys.exit(1)
+
     if not input_json.exists():
         logging.error(f"Missing ranking output: {input_json}")
         return
@@ -63,9 +70,17 @@ def upload_final_candidates(
         ).execute()
         
         logging.info(f"Database Sync complete. Upserted {len(sanitized_payload)} candidates.")
+
+        if replace:
+            codes = [row["candidate_code"] for row in sanitized_payload]
+            supabase.table("polypharmacology_results").delete().not_.in_("candidate_code", codes).execute()
+            logging.info("Removed rows from previous runs (--replace).")
     except Exception as e:
         logging.error(f"Supabase upload failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    upload_final_candidates()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--replace", action="store_true", help="Delete rows not in the current ranking.")
+    upload_final_candidates(replace=parser.parse_args().replace)

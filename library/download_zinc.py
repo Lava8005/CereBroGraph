@@ -39,7 +39,11 @@ def stream_zinc_subset(
             urls = [line.strip() for line in f if line.strip().startswith("http")]
 
     if not urls:
-        logging.warning("Missing URI list. Using highly-available S3 mirror...")
+        logging.warning(
+            f"URI list {uri_list_path} not found. Falling back to the MoleculeNet HIV.csv set "
+            "(a public drug-like library, NOT ZINC). Download a ZINC '2D-smi' URI file from "
+            "https://zinc.docking.org/tranches/home/ and pass it with --uri-file to use ZINC."
+        )
         urls = ["https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/HIV.csv"]
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +102,8 @@ def stream_zinc_subset(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--count", type=int, default=50000)
+    parser.add_argument("--count", type=int, default=50000, help="Total molecules to collect (incl. controls).")
+    parser.add_argument("--uri-file", type=Path, default=Path("ZINC-downloader-2D-smi.uri"),
+                        help="ZINC downloader .uri file listing tranche URLs.")
     args = parser.parse_args()
-    stream_zinc_subset(target_count=args.count)
+    stream_zinc_subset(uri_list_path=args.uri_file, target_count=args.count)

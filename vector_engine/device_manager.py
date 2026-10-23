@@ -1,7 +1,7 @@
 """Centralized Hardware Acceleration & CUDA Memory Lifecycle Manager.
 
 Provides deterministic device placement, asynchronous non-blocking memory transfers,
-automatic mixed precision (AMP) scopes, and VRAM telemetry for CereBroGraph.
+automatic mixed precision (AMP) scopes, and VRAM telemetry for CerebroGraph.
 """
 
 import contextlib
