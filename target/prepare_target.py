@@ -4,14 +4,17 @@ Automates the acquisition, cleaning, and PDBQT conversion of CNS disease
 protein receptors (AChE, MAO-B, 5-HT2A). Dynamically computes biological 
 active-site centroids to ensure thermodynamically valid AutoDock Vina simulations.
 """
-
+import sys
+from pathlib import Path
+venv_site_packages = Path(__file__).parent.parent / "venv" / "Lib" / "site-packages"
+if venv_site_packages.exists() and str(venv_site_packages) not in sys.path:
+    sys.path.insert(0, str(venv_site_packages.resolve()))
 import json
 import logging
 import os
+import shutil
 import subprocess
-import sys
 import urllib.request
-from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Set
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -82,7 +85,9 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
             logging.error(f"Failed to download PDB {pdb_id}: {e}")
             sys.exit(1)
 
-    ligands_to_extract = {"E20", "SAG", "RIS"}
+    # Native ligand residue codes: E20 = donepezil (4EY7), SAG = safinamide (2V5Z),
+    # 8NU = risperidone (6A93). "RIS" is kept only for backward compatibility.
+    ligands_to_extract = {"E20", "SAG", "8NU", "RIS"}
     centroid = compute_native_centroid(raw_pdb, ligands_to_extract)
     
     if centroid:
@@ -131,25 +136,43 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
     else:
         logging.info(f"Preparing {disease} receptor PDBQT ({pdb_id})...")
         cleaned_pdb = output_dir / f"{pdb_id}_clean.pdb"
-        
-        strip_residues = ligands_to_extract | {"HOH", "WAT", "DUM"}
-        
+
+        # FIX 1: keep protein atoms only. This drops waters, glycans (NAG/FUC),
+        # EDO, NO3 and the native ligands, none of which Meeko has templates for.
         with open(raw_pdb, "r", encoding="utf-8") as infile, \
              open(cleaned_pdb, "w", encoding="utf-8") as outfile:
             for line in infile:
-                if line.startswith(("ATOM", "HETATM")):
-                    res_name = line[17:20].strip()
-                    if res_name in strip_residues:
+                if line.startswith("ATOM"):
+                    # Keep only the first alternate conformation (altloc ' ' or 'A')
+                    if line[16] not in (" ", "A"):
                         continue
-                if line.startswith(("ATOM", "HETATM", "TER", "END")):
+                    outfile.write(line)
+                elif line.startswith(("TER", "END")):
                     outfile.write(line)
 
-        obabel_exe = "obabel" if os.name != "nt" else "obabel.exe"
         try:
-            cmd = [obabel_exe, "-rh", "-xr", str(cleaned_pdb), "-O", str(receptor_pdbqt)]
-            subprocess.run(cmd, capture_output=True, check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            logging.error("Open Babel is required but not found in system PATH. Cannot prepare receptor.")
+            logging.info("Converting clean PDB to PDBQT using Meeko CLI...")
+            cmd = [
+                sys.executable, "-m", "meeko.cli.mk_prepare_receptor",
+                "--read_pdb", str(cleaned_pdb),
+                "-o", str(output_dir / f"{pdb_id}_target"),
+                "--write_pdbqt", str(receptor_pdbqt),
+                "--default_altloc", "A",
+                "--delete_bad_res",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            # FIX 2: log both streams so the real error is never hidden behind warnings
+            if result.returncode != 0:
+                logging.error(
+                    f"Meeko failed (exit {result.returncode}):\n"
+                    f"STDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}"
+                )
+                sys.exit(1)
+
+            logging.info(f"Generated target via Meeko: {receptor_pdbqt}")
+        except Exception as exc:
+            logging.error(f"Receptor conversion failed: {exc}")
             sys.exit(1)
 
         if not validate_receptor_integrity(receptor_pdbqt):

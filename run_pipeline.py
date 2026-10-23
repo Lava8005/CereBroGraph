@@ -41,7 +41,10 @@ def run_stage(script_relative_path: str, stage_name: str):
     cmd = [sys.executable, str(script_path)]
         
     try:
-        subprocess.run(cmd, cwd=PROJECT_ROOT, check=True)
+        import os
+        current_env = os.environ.copy()
+        
+        subprocess.run(cmd, cwd=PROJECT_ROOT, check=True, env=current_env)
     except subprocess.CalledProcessError as e:
         logging.error(f"Pipeline failure in stage: {stage_name} (Exit code {e.returncode})")
         sys.exit(e.returncode)
