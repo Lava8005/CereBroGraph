@@ -13,3 +13,13 @@ All random seeds are fixed (seeds 0-4 for the benchmark, split seed = model seed
 | Tests | `python -m pytest` | |
 
 Data: B3DB classification table (Meng et al., 2021) in `data/training/`. Receptor structures in the pilot come from the DOCKSTRING bundle; PDB identities were not independently verified.
+
+## Surrogate screening and BBB uncertainty (new)
+
+| Experiment | Command | Output |
+|---|---|---|
+| 5-member BBB ensemble + conformal prediction (one scaffold split) | `python -m experiments.bbb_uncertainty` | `results/bbb_uncertainty/` |
+| Surrogate-guided docking vs random (real pilot docking scores) | `python -m experiments.surrogate_eval --source pilot --seeds 5` | `results/surrogate_eval/pilot_summary.md` |
+| Same loop on a synthetic descriptor score (mechanism check only, not docking data) | `python -m experiments.surrogate_eval --source synthetic --n 1000 --seeds 3` | `results/surrogate_eval/synthetic_summary.md` |
+
+Library code: `vector_engine/uncertainty.py` (ensemble + Mondrian conformal), `screening/surrogate.py` (GNN ensemble surrogate, random/greedy/UCB/Pareto acquisition, recall metrics).

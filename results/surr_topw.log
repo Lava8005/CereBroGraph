@@ -1,0 +1,28 @@
+/usr/local/lib/python3.13/dist-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+feasible 0 done
+feasible 1 done
+feasible 2 done
+feasible 3 done
+feasible 4 done
+pareto 0 done
+pareto 1 done
+pareto 2 done
+pareto 3 done
+pareto 4 done
+# Surrogate screening (pilot); library N=159, 5 seeds, init=15, batch=7
+
+True top set: top 10% by mean score; feasible = every target <= -7.00 and BBB p >= 0.5.
+
+| mode | docked | frac | top-10% recall | Pareto recall | feasible recall |
+|---|---|---|---|---|---|
+| feasible | 15 | 0.09 | 0.11 ± 0.08 | 0.12 ± 0.08 | 0.11 ± 0.05 |
+| feasible | 22 | 0.14 | 0.21 ± 0.09 | 0.25 ± 0.13 | 0.19 ± 0.08 |
+| feasible | 29 | 0.18 | 0.29 ± 0.08 | 0.33 ± 0.14 | 0.26 ± 0.08 |
+| feasible | 36 | 0.23 | 0.30 ± 0.08 | 0.38 ± 0.10 | 0.37 ± 0.06 |
+| feasible | 43 | 0.27 | 0.40 ± 0.08 | 0.45 ± 0.08 | 0.46 ± 0.07 |
+| pareto | 15 | 0.09 | 0.11 ± 0.08 | 0.12 ± 0.08 | 0.11 ± 0.05 |
+| pareto | 22 | 0.14 | 0.24 ± 0.11 | 0.31 ± 0.10 | 0.15 ± 0.06 |
+| pareto | 29 | 0.18 | 0.28 ± 0.12 | 0.43 ± 0.10 | 0.17 ± 0.07 |
+| pareto | 36 | 0.23 | 0.34 ± 0.09 | 0.50 ± 0.09 | 0.22 ± 0.08 |
+| pareto | 43 | 0.27 | 0.45 ± 0.10 | 0.63 ± 0.06 | 0.25 ± 0.07 |

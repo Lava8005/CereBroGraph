@@ -1,0 +1,48 @@
+/usr/local/lib/python3.13/dist-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+random 0 done
+random 1 done
+random 2 done
+random 3 done
+random 4 done
+greedy 0 done
+greedy 1 done
+greedy 2 done
+greedy 3 done
+greedy 4 done
+ucb 0 done
+ucb 1 done
+ucb 2 done
+ucb 3 done
+ucb 4 done
+pareto 0 done
+pareto 1 done
+pareto 2 done
+pareto 3 done
+pareto 4 done
+# Surrogate screening (pilot); library N=159, 5 seeds, init=15, batch=7
+
+True top set: top 10% by mean score; feasible = every target <= -7.00 and BBB p >= 0.5.
+
+| mode | docked | frac | top-10% recall | Pareto recall | feasible recall |
+|---|---|---|---|---|---|
+| greedy | 15 | 0.09 | 0.11 ± 0.08 | 0.12 ± 0.08 | 0.11 ± 0.05 |
+| greedy | 22 | 0.14 | 0.31 ± 0.08 | 0.26 ± 0.13 | 0.18 ± 0.09 |
+| greedy | 29 | 0.18 | 0.41 ± 0.13 | 0.32 ± 0.12 | 0.23 ± 0.10 |
+| greedy | 36 | 0.23 | 0.44 ± 0.16 | 0.35 ± 0.09 | 0.30 ± 0.10 |
+| greedy | 43 | 0.27 | 0.56 ± 0.21 | 0.42 ± 0.10 | 0.35 ± 0.12 |
+| pareto | 15 | 0.09 | 0.11 ± 0.08 | 0.12 ± 0.08 | 0.11 ± 0.05 |
+| pareto | 22 | 0.14 | 0.20 ± 0.08 | 0.31 ± 0.11 | 0.14 ± 0.05 |
+| pareto | 29 | 0.18 | 0.26 ± 0.08 | 0.40 ± 0.13 | 0.19 ± 0.06 |
+| pareto | 36 | 0.23 | 0.39 ± 0.07 | 0.52 ± 0.09 | 0.22 ± 0.04 |
+| pareto | 43 | 0.27 | 0.55 ± 0.07 | 0.61 ± 0.05 | 0.26 ± 0.05 |
+| random | 15 | 0.09 | 0.11 ± 0.08 | 0.12 ± 0.08 | 0.11 ± 0.05 |
+| random | 22 | 0.14 | 0.15 ± 0.06 | 0.18 ± 0.04 | 0.14 ± 0.06 |
+| random | 29 | 0.18 | 0.23 ± 0.10 | 0.24 ± 0.07 | 0.20 ± 0.08 |
+| random | 36 | 0.23 | 0.24 ± 0.10 | 0.29 ± 0.05 | 0.26 ± 0.06 |
+| random | 43 | 0.27 | 0.30 ± 0.11 | 0.32 ± 0.08 | 0.30 ± 0.08 |
+| ucb | 15 | 0.09 | 0.11 ± 0.08 | 0.12 ± 0.08 | 0.11 ± 0.05 |
+| ucb | 22 | 0.14 | 0.29 ± 0.07 | 0.25 ± 0.11 | 0.16 ± 0.08 |
+| ucb | 29 | 0.18 | 0.44 ± 0.15 | 0.34 ± 0.13 | 0.22 ± 0.09 |
+| ucb | 36 | 0.23 | 0.55 ± 0.19 | 0.40 ± 0.14 | 0.29 ± 0.12 |
+| ucb | 43 | 0.27 | 0.65 ± 0.22 | 0.45 ± 0.15 | 0.35 ± 0.14 |

@@ -13,7 +13,7 @@ from torch.nn import Sequential, Linear, BatchNorm1d, ReLU, Dropout
 
 
 class BBBGraphModel(nn.Module):
-    def __init__(self, num_node_features=27, edge_dim=7, global_dim=2, hidden_dim=64):
+    def __init__(self, num_node_features=27, edge_dim=7, global_dim=2, hidden_dim=64, out_dim=1):
         super(BBBGraphModel, self).__init__()
         
         # 1. Initial Encoders
@@ -42,7 +42,7 @@ class BBBGraphModel(nn.Module):
             BatchNorm1d(hidden_dim),
             ReLU(),
             Dropout(0.3),
-            Linear(hidden_dim, 1)
+            Linear(hidden_dim, out_dim)
         )
 
     def forward(self, x, edge_index, batch, edge_attr=None, global_features=None):

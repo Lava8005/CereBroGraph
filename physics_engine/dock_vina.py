@@ -281,4 +281,9 @@ def batch_execute_docking(
 
 
 if __name__ == "__main__":
-    batch_execute_docking()
+    # Optional overrides without editing code: CEREBRO_DOCK_WORKERS, CEREBRO_EXHAUSTIVENESS, CEREBRO_TIMEOUT
+    batch_execute_docking(
+        max_workers=int(os.environ["CEREBRO_DOCK_WORKERS"]) if os.environ.get("CEREBRO_DOCK_WORKERS") else None,
+        exhaustiveness=int(os.environ.get("CEREBRO_EXHAUSTIVENESS", DEFAULT_EXHAUSTIVENESS)),
+        timeout=int(os.environ.get("CEREBRO_TIMEOUT", DEFAULT_TIMEOUT_S)),
+    )
