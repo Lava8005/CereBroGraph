@@ -34,17 +34,26 @@ python -m screening.run_active --input data/physics_engine/filtered_step2.csv --
 ```
 
 ## 5. DUD-E validation (does Vina enrich real actives on these receptors?)
-Download four files per target from https://dude.docking.org/targets/<target>/ into `data/dude/<target>/`:
-`actives_final.ism`, `decoys_final.ism`, `receptor.pdb`, `crystal_ligand.mol2` for `aces` (AChE) and `aofb` (MAO-B).
+dude.docking.org is not reliable for scripted download, so use the mirror on GitHub (this is what worked on the lab PC):
 ```powershell
-python -m experiments.dude_validation --dude-dir data/dude --targets aces aofb --workers 24
+$base = "https://raw.githubusercontent.com/ryancoleman/auto-dud-e/master"
+$map = [ordered]@{"actives_final.ism"="actives_final.ism"; "decoys_final.ism"="decoys_final.ism"; "rec.pdb"="receptor.pdb"; "xtal-lig.pdb"="xtal-lig.pdb"}
+foreach ($t in "aces","aofb") {
+  New-Item -ItemType Directory -Force "data\dude\$t" | Out-Null
+  foreach ($src in $map.Keys) { Invoke-WebRequest -Uri "$base/$t/$src" -OutFile "data\dude\$t\$($map[$src])" -UseBasicParsing }
+}
 ```
-About 1,600 dockings per target (about 1-2 hours each on your PC). Output: `results/dude_validation/summary.md`. Send it to me.
+The script now reads `xtal-lig.pdb` directly and fetches the ligand's bond orders from RCSB, so the old mol2 conversion is no longer needed.
 
-### 5. (b) The receptors the pipeline really uses, including 5-HT2A
-DUD-E has no 5-HT2A, so this step checks the three pipeline structures (4EY7, 2V5Z, 6A93) directly. It downloads each PDB from RCSB, re-docks the native ligand (donepezil, safinamide, risperidone) and reports the RMSD, and for 5-HT2A also docks 12 known 5-HT2A drugs (`data/validation/5ht2a_known_actives.smi`) against property-matched decoys.
+**MAO-B keeps its FAD cofactor.** FAD forms part of the MAO-B pocket and Meeko deletes it by default. The code now re-attaches it via Open Babel (`target/cofactors.py`, `keep_cofactors` in `config/cns_targets.json`). After updating, delete old receptors so they are rebuilt:
 ```powershell
-python -m experiments.dude_validation --targets --custom config/validation_targets.json --workers 24
+Remove-Item data\target\*.pdbqt -ErrorAction SilentlyContinue
+Remove-Item data\physics_engine\docking_results.csv -ErrorAction SilentlyContinue
+Remove-Item results\dude_validation -Recurse -ErrorAction SilentlyContinue
+python target/prepare_target.py      # log must say: Kept cofactor(s) ['FAD'] ...
 ```
-(`--targets` with no names skips the DUD-E part. Run both parts together by giving `--targets aces aofb --custom ...`.)
-For a stronger 5-HT2A test, add more actives (SMILES, one per line, `SMILES name`) to that file: ChEMBL target CHEMBL224, potency pChEMBL >= 7, about 100 compounds.
+Then:
+```powershell
+python -m experiments.dude_validation --targets aces aofb --custom config/validation_targets.json --workers 14 2>&1 | Tee-Object validation.log
+```
+(Each target needs about 5 minutes for receptor preparation first; the dockings follow.) Output: `results\dude_validation\summary.md`.

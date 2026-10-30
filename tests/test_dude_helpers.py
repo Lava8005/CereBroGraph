@@ -47,3 +47,11 @@ def test_native_ligand_from_pdb_picks_first_copy(tmp_path):
         "HETATM    4  C1  LIG B 302       9.000   9.000   9.000  1.00  0.00           C\n")
     m = native_ligand_from_pdb(pdb, "LIG")
     assert m.GetNumAtoms() == 2
+
+
+def test_parse_pdbqt_models_returns_all_poses():
+    from experiments.dude_validation import parse_pdbqt_models
+    one = "ATOM      1  C1  LIG A   1       {:.3f}   0.000   0.000  0.00  0.00    +0.000 A \n"
+    txt = "MODEL 1\n" + one.format(1.0) + "ENDMDL\nMODEL 2\n" + one.format(5.0) + "ENDMDL\n"
+    models = parse_pdbqt_models(txt)
+    assert len(models) == 2 and models[0][0][0, 0] == 1.0 and models[1][0][0, 0] == 5.0

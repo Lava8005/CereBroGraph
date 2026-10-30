@@ -75,3 +75,21 @@ def test_feasible_mode_prefers_confident_feasible():
 def test_top_weighted_loss_runs():
     sur = SurrogateEnsemble(n_targets=2, n_members=1, epochs=2, top_weight=1.0).fit(SMILES[:20], oracle(SMILES[:20]))
     assert sur.predict(SMILES[20:])[0].shape == (10, 2)
+
+
+def test_vina_oracle_retries_failures_only_under_longer_timeout(tmp_path, monkeypatch):
+    import json
+    import screening.vina_oracle as vo
+    calls = []
+    monkeypatch.setattr(vo, "prepare_ligand_pdbqt", lambda s: "REMARK dummy\n")
+    def fake_dock(exe, path, target, exh, to):
+        calls.append(to)
+        return "A", (-8.0 if to >= 300 else 0.0)      # only succeeds with a long timeout
+    monkeypatch.setattr(vo, "dock_precomputed_target", fake_dock)
+    idx = tmp_path / "t.json"; idx.write_text(json.dumps([{"disease": "A", "pdbqt": "x", "grid": "y"}]))
+    o = vo.VinaOracle(idx, tmp_path / "c.csv", max_workers=1, timeout=120, work_dir=tmp_path / "w")
+    assert np.isnan(o(["CCO"])[0, 0]) and calls == [120]
+    o_same = vo.VinaOracle(idx, tmp_path / "c.csv", max_workers=1, timeout=120, work_dir=tmp_path / "w")
+    o_same(["CCO"]); assert calls == [120]                       # same timeout: not retried
+    o_long = vo.VinaOracle(idx, tmp_path / "c.csv", max_workers=1, timeout=600, work_dir=tmp_path / "w")
+    assert o_long(["CCO"])[0, 0] == -8.0 and calls == [120, 600]  # longer timeout: retried and recorded

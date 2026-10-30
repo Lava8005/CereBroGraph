@@ -17,6 +17,14 @@ import subprocess
 import urllib.request
 from typing import Dict, Any, Optional, Tuple, Set
 
+try:  # works both as `python target/prepare_target.py` and as a package import
+    from target.cofactors import (append_to_receptor, cofactor_to_pdbqt_lines, extract_cofactor_lines,
+                                  has_residue, protein_lines)
+except ImportError:  # pragma: no cover
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from target.cofactors import (append_to_receptor, cofactor_to_pdbqt_lines, extract_cofactor_lines,
+                                  has_residue, protein_lines)
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
@@ -131,24 +139,18 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
         with open(grid_json, "w", encoding="utf-8") as f:
             json.dump(box_data, f, indent=4)
 
-    if validate_receptor_integrity(receptor_pdbqt):
+    keep = target_config.get("keep_cofactors", [])
+    if validate_receptor_integrity(receptor_pdbqt) and (not keep or has_residue(receptor_pdbqt, keep)):
         logging.info(f"Target {disease} ({pdb_id}) receptor already prepared. Cache hit.")
     else:
         logging.info(f"Preparing {disease} receptor PDBQT ({pdb_id})...")
         cleaned_pdb = output_dir / f"{pdb_id}_clean.pdb"
 
-        # FIX 1: keep protein atoms only. This drops waters, glycans (NAG/FUC),
-        # EDO, NO3 and the native ligands, none of which Meeko has templates for.
-        with open(raw_pdb, "r", encoding="utf-8") as infile, \
-             open(cleaned_pdb, "w", encoding="utf-8") as outfile:
-            for line in infile:
-                if line.startswith("ATOM"):
-                    # Keep only the first alternate conformation (altloc ' ' or 'A')
-                    if line[16] not in (" ", "A"):
-                        continue
-                    outfile.write(line)
-                elif line.startswith(("TER", "END")):
-                    outfile.write(line)
+        # FIX 1: keep protein atoms only (drops waters, glycans, EDO, NO3 and the native ligands, none of
+        # which Meeko has templates for). Essential cofactors listed in `keep_cofactors` (FAD for MAO-B) are
+        # removed here and re-attached after Meeko, because Meeko would otherwise delete them.
+        with open(cleaned_pdb, "w", encoding="utf-8") as outfile:
+            outfile.write("\n".join(protein_lines(raw_pdb, exclude_resnames=keep)) + "\n")
 
         try:
             logging.info("Converting clean PDB to PDBQT using Meeko CLI...")
@@ -171,6 +173,12 @@ def prepare_single_target(target_config: Dict[str, Any], output_dir: Path) -> bo
                 sys.exit(1)
 
             logging.info(f"Generated target via Meeko: {receptor_pdbqt}")
+            if keep:
+                cof = extract_cofactor_lines(raw_pdb, keep)
+                if not cof:
+                    raise RuntimeError(f"Cofactor(s) {keep} not found in {pdb_id}")
+                n = append_to_receptor(receptor_pdbqt, cofactor_to_pdbqt_lines(cof))
+                logging.info(f"Kept cofactor(s) {keep}: appended {n} atoms to the receptor.")
         except Exception as exc:
             logging.error(f"Receptor conversion failed: {exc}")
             sys.exit(1)

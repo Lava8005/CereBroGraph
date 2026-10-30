@@ -31,13 +31,23 @@ class VinaOracle:
         self.cache_csv.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self.cache = {}
+        self._failed_at = {}   # smiles -> timeout (s) under which the failure was recorded
+        header = ["smiles"] + self.names + ["timeout_s"]
         if self.cache_csv.exists():
             with open(self.cache_csv, newline="", encoding="utf-8") as f:
-                for row in csv.DictReader(f):
-                    self.cache[row["smiles"]] = [float(row[n]) if row[n] not in ("", "nan") else np.nan for n in self.names]
+                rows = list(csv.DictReader(f))
+            for row in rows:
+                sc = [float(row[n]) if row[n] not in ("", "nan") else np.nan for n in self.names]
+                self.cache[row["smiles"]] = sc
+                self._failed_at[row["smiles"]] = float(row.get("timeout_s") or 0)
+            if rows and "timeout_s" not in rows[0]:   # upgrade an old cache file in place
+                with open(self.cache_csv, "w", newline="", encoding="utf-8") as f:
+                    w = csv.writer(f); w.writerow(header)
+                    for smi, sc in self.cache.items():
+                        w.writerow([smi] + ["" if np.isnan(x) else x for x in sc] + [0])
         else:
             with open(self.cache_csv, "w", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow(["smiles"] + self.names)
+                csv.writer(f).writerow(header)
         self.docking_calls = 0
 
     def _dock_one(self, smiles: str) -> List[float]:
@@ -58,15 +68,18 @@ class VinaOracle:
                 os.remove(path)
 
     def __call__(self, smiles: Sequence[str]) -> np.ndarray:
-        todo = [s for s in dict.fromkeys(smiles) if s not in self.cache]
+        # A molecule is re-docked if it was never docked, or if a target failed under a SHORTER timeout than now.
+        todo = [s for s in dict.fromkeys(smiles)
+                if s not in self.cache or (np.isnan(self.cache[s]).any() and self._failed_at.get(s, 0) < self.timeout)]
         if todo:
             def work(s):
                 sc = self._dock_one(s)
                 with self._lock:
                     self.cache[s] = sc
+                    self._failed_at[s] = self.timeout
                     self.docking_calls += 1
                     with open(self.cache_csv, "a", newline="", encoding="utf-8") as f:
-                        csv.writer(f).writerow([s] + ["" if np.isnan(x) else x for x in sc])
+                        csv.writer(f).writerow([s] + ["" if np.isnan(x) else x for x in sc] + [self.timeout])
                 return sc
             with ThreadPoolExecutor(max_workers=self.workers) as ex:
                 list(ex.map(work, todo))

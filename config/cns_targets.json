@@ -17,7 +17,10 @@
             "size_x": 22.0,
             "size_y": 22.0,
             "size_z": 22.0
-        }
+        },
+        "keep_cofactors": [
+            "FAD"
+        ]
     },
     {
         "disease": "Schizophrenia_5HT2A",
